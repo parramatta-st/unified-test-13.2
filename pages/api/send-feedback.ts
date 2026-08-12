@@ -10,6 +10,46 @@ function lower(v: any) { return norm(v).toLowerCase(); }
 // Email headers must never contain CR/LF (header injection).
 function headerSafe(v: any) { return String(v || '').replace(/[\r\n]+/g, ' ').trim(); }
 
+function emailDomain(address: string) {
+  const value = lower(address);
+  const at = value.lastIndexOf('@');
+  return at > 0 ? value.slice(at + 1) : '';
+}
+
+function aliasLocalPart(campusName: string, campusKey: string) {
+  // Prefer the human-readable campus name so abbreviations such as `stgv` do
+  // not leak into the sender address. `Success Tutoring Green Valley` and
+  // `Green Valley Success Tutoring` both resolve to `greenvalley`.
+  const fromName = lower(campusName)
+    .replace(/\bsuccess\b/g, ' ')
+    .replace(/\btutoring\b/g, ' ')
+    .replace(/\bcentre\b/g, ' ')
+    .replace(/\bcenter\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, '');
+  if (fromName) return fromName;
+  return lower(campusKey).replace(/[^a-z0-9]+/g, '');
+}
+
+function resolveFromAddress(user: string, campusName: string, campusKey: string) {
+  const explicit = headerSafe(process.env.MAIL_FROM);
+  if (explicit) return { address: explicit, source: 'MAIL_FROM' };
+
+  const loginAddress = headerSafe(user);
+  const loginDomain = emailDomain(loginAddress);
+  const configuredDomain = lower(process.env.MAIL_FROM_DOMAIN).replace(/^@+/, '').replace(/[^a-z0-9.-]/g, '');
+
+  // Automatically use centre aliases only for the shared Workspace domain
+  // (or when MAIL_FROM_DOMAIN is explicitly configured). Personal Gmail and
+  // legacy senders keep their existing behaviour.
+  const aliasDomain = configuredDomain || (loginDomain === 'st-feedback.site' ? loginDomain : '');
+  const localPart = aliasLocalPart(campusName, campusKey);
+  if (aliasDomain && localPart) {
+    return { address: `${localPart}@${aliasDomain}`, source: 'campus-alias' };
+  }
+
+  return { address: loginAddress, source: 'MAIL_USER' };
+}
+
 async function lookupParentEmail(name: string): Promise<string | undefined> {
   const loaded = await loadMembers();
   const rows = loaded.members || [];
@@ -51,11 +91,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ ok: false, error: 'Parent email not found for selected student' });
   }
 
-  const user = process.env.MAIL_USER || '';
+  const user = headerSafe(process.env.MAIL_USER);
   const pass = process.env.MAIL_PASS || '';
-  const fromAddress = process.env.MAIL_FROM || user;
-  const replyTo = process.env.REPLY_TO || fromAddress;
-  const campusName = process.env.NEXT_PUBLIC_CAMPUS_NAME || 'Success Tutoring';
+  const campusKey = headerSafe(auth.campus || meta?.campusKey || defaultCampusKey());
+  const campusName = headerSafe(process.env.NEXT_PUBLIC_CAMPUS_NAME || 'Success Tutoring');
+  const resolvedFrom = resolveFromAddress(user, campusName, campusKey);
+  const fromAddress = resolvedFrom.address;
+  const replyTo = headerSafe(process.env.REPLY_TO || fromAddress);
 
   if (!user || !pass) {
     return res.status(500).json({ ok: false, error: 'MAIL_USER/PASS not configured' });
@@ -64,11 +106,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user, pass } });
 
-    const info = await transporter.sendMail({ from: `${campusName} <${fromAddress}>`, to: toEmail, replyTo, subject, text });
+    console.info('Sending feedback email', {
+      campusKey,
+      fromAddress,
+      fromSource: resolvedFrom.source,
+      replyTo,
+    });
+
+    const info = await transporter.sendMail({
+      from: { name: campusName, address: fromAddress },
+      to: toEmail,
+      replyTo,
+      subject,
+      text,
+    });
 
     const payload = {
       timestamp: new Date().toISOString(),
-      campusKey: auth.campus || meta?.campusKey || defaultCampusKey(),
+      campusKey,
       campusName: meta?.campusName || campusName,
       tutorName: meta?.tutorName || auth.tutor || '',
       studentId: meta?.studentId || '',
@@ -107,7 +162,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    return res.status(200).json({ ok: true, messageId: info?.messageId || '', logged: privateLog.saved ? 'private-sheet' : webhook ? 'webhook' : 'not-configured' });
+    return res.status(200).json({
+      ok: true,
+      messageId: info?.messageId || '',
+      sender: fromAddress,
+      replyTo,
+      senderSource: resolvedFrom.source,
+      logged: privateLog.saved ? 'private-sheet' : webhook ? 'webhook' : 'not-configured',
+    });
   } catch (e: any) {
     return res.status(500).json({ ok: false, error: e?.message || 'send failed' });
   }
