@@ -53,7 +53,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const user = process.env.MAIL_USER || '';
   const pass = process.env.MAIL_PASS || '';
-  const replyTo = process.env.REPLY_TO || user;
+  const fromAddress = process.env.MAIL_FROM || user;
+  const replyTo = process.env.REPLY_TO || fromAddress;
   const campusName = process.env.NEXT_PUBLIC_CAMPUS_NAME || 'Success Tutoring';
 
   if (!user || !pass) {
@@ -63,7 +64,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user, pass } });
 
-    const info = await transporter.sendMail({ from: `${campusName} <${user}>`, to: toEmail, replyTo, subject, text });
+    const info = await transporter.sendMail({ from: `${campusName} <${fromAddress}>`, to: toEmail, replyTo, subject, text });
 
     const payload = {
       timestamp: new Date().toISOString(),
