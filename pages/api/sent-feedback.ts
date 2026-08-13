@@ -14,11 +14,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!admin.authed) return res.status(401).json({ ok: false, error: 'Login required' });
   if (!admin.isAdmin) return res.status(403).json({ ok: false, error: 'Admin access required' });
 
-  const rawLimit = Number(req.query.limit || 300);
-  const limit = Math.min(1000, Math.max(20, Number.isFinite(rawLimit) ? Math.floor(rawLimit) : 300));
-
   try {
-    const inbox = await loadFeedbackInbox(admin, { limit });
+    // The inbox is intentionally uncapped. loadFeedbackLogRows already reads the
+    // centre's complete feedback log, so truncating the response at 1000 saved no
+    // Google Sheets work and made older conversations invisible/unsearchable.
+    // Keeping the complete centre archive here also makes the sidebar counts and
+    // client-side Gmail-style search accurate across the full history.
+    const inbox = await loadFeedbackInbox(admin, { limit: 0 });
     if (inbox.warning && !inbox.total) {
       return res.status(500).json({ ok: false, error: `Inbox could not load the feedback log: ${inbox.warning}` });
     }
