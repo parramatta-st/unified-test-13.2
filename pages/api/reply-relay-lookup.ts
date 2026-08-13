@@ -1,10 +1,12 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import {
   findRelayConversation,
+  findRelayConversationByCentreReply,
   latestParentReplyForConversation,
   norm,
   readValue,
   relayHubMode,
+  relayHubTargetForRoute,
   relayHubTargetForToken,
   relaySecretConfigured,
   relaySecretValid,
@@ -25,18 +27,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const relayToken = norm(req.query.token);
-  if (!relayToken) return res.status(400).json({ ok: false, error: 'Missing relay token.' });
+  const fallbackRoute = norm(req.query.route);
+  const fallbackSender = norm(req.query.sender);
+  const fallbackSubject = norm(req.query.subject);
+  const fallbackLookup = !relayToken && !!(fallbackRoute && fallbackSender && fallbackSubject);
 
-  // The dedicated relay project is intentionally stateless. It reads the
-  // campus prefix from the token and proxies to that campus deployment, where
-  // the original feedback log and conversation data already live.
+  if (!relayToken && !fallbackLookup) {
+    return res.status(400).json({ ok: false, error: 'Missing relay token or fallback centre-reply lookup fields.' });
+  }
+
+  // The dedicated relay project is intentionally stateless. Normal lookups
+  // route by the campus prefix encoded in the relay token. Fallback lookups
+  // route by an explicit campus route derived from the incoming centre email.
   if (relayHubMode()) {
-    const target = relayHubTargetForToken(relayToken);
+    const target = relayToken
+      ? relayHubTargetForToken(relayToken)
+      : relayHubTargetForRoute(fallbackRoute);
     if (!target) {
       return res.status(404).json({ ok: false, error: 'No relay hub route is configured for this conversation.' });
     }
     try {
-      const upstream = await fetch(`${target}/api/reply-relay-lookup?token=${encodeURIComponent(relayToken)}`, {
+      const params = new URLSearchParams();
+      if (relayToken) {
+        params.set('token', relayToken);
+      } else {
+        params.set('sender', fallbackSender);
+        params.set('subject', fallbackSubject);
+      }
+      const upstream = await fetch(`${target}/api/reply-relay-lookup?${params.toString()}`, {
         method: 'GET',
         headers: { 'x-st-relay-secret': norm(req.headers['x-st-relay-secret']) },
         cache: 'no-store',
@@ -51,7 +69,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const conversation = await findRelayConversation(relayToken);
+    let conversation: any = null;
+    if (relayToken) {
+      conversation = await findRelayConversation(relayToken);
+    } else {
+      const fallback = await findRelayConversationByCentreReply(fallbackSender, fallbackSubject);
+      if (fallback.ambiguous) {
+        return res.status(409).json({ ok: false, error: 'Centre reply matches more than one relay conversation.' });
+      }
+      conversation = fallback.conversation;
+    }
+
     if (!conversation) return res.status(404).json({ ok: false, error: 'Relay conversation not found.' });
 
     const latestParentReply = await latestParentReplyForConversation(conversation.conversationId);
@@ -59,6 +87,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     return res.status(200).json({
       ok: true,
+      relayToken: conversation.relayToken,
       conversationId: conversation.conversationId,
       campusKey: conversation.campusKey,
       campusName: conversation.campusName,
