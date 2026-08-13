@@ -95,6 +95,30 @@ async function lookupParentEmail(name: string): Promise<string | undefined> {
   return undefined;
 }
 
+async function persistFeedbackLog(payload: any) {
+  const privateLog = await appendFeedbackLog(payload).catch((err) => ({ saved: false, error: err?.message || 'private logging failed' }));
+  if (privateLog.saved) return { logged: 'private-sheet', saved: true };
+
+  const webhook = process.env.FEEDBACK_LOG_WEBHOOK_URL;
+  if (!webhook) return { logged: 'not-configured', saved: false };
+
+  try {
+    const logRes = await fetch(webhook, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!logRes.ok) {
+      console.error('Feedback logging failed', await logRes.text());
+      return { logged: 'webhook-failed', saved: false };
+    }
+    return { logged: 'webhook', saved: true };
+  } catch (err) {
+    console.error('Feedback logging error', err);
+    return { logged: 'webhook-failed', saved: false };
+  }
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).end();
   const auth = await getAuthStatus(req);
@@ -130,6 +154,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ ok: false, error: 'MAIL_USER/PASS not configured' });
   }
 
+  const basePayload = {
+    timestamp: new Date().toISOString(),
+    campusKey,
+    campusName: meta?.campusName || campusName,
+    tutorName: meta?.tutorName || auth.tutor || '',
+    studentId: meta?.studentId || '',
+    studentName: meta?.studentName || toName || '',
+    studentFirstName: meta?.studentFirstName || (String(toName).split(/\s+/)[0] || ''),
+    studentLastName: meta?.studentLastName || '',
+    studentYear: meta?.studentYear || '',
+    parentName: meta?.parentName || '',
+    parentEmail: toEmail,
+    mode: meta?.mode || '',
+    feedbackType: meta?.feedbackType || '',
+    programKey: meta?.programKey || '',
+    programLabel: meta?.programLabel || '',
+    templateIndex: meta?.templateIndex || '',
+    lessonNumber: meta?.lessonNumber || '',
+    assessmentName: meta?.assessmentName || '',
+    completionStatus: meta?.completionStatus || '',
+    sourceForm: meta?.sourceForm || 'feedback',
+    year: meta?.year || '',
+    subject: meta?.subject || '',
+    strand: meta?.strand || '',
+    lesson: meta?.lesson || '',
+    topic: meta?.topic || '',
+    subjectLine: meta?.subjectLine || subject,
+    fromName,
+    fromAddress,
+    replyTo,
+    messageText: String(text),
+  };
+
   try {
     const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user, pass } });
 
@@ -153,45 +210,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     const payload = {
-      timestamp: new Date().toISOString(),
-      campusKey,
-      campusName: meta?.campusName || campusName,
-      tutorName: meta?.tutorName || auth.tutor || '',
-      studentId: meta?.studentId || '',
-      studentName: meta?.studentName || toName || '',
-      studentFirstName: meta?.studentFirstName || (String(toName).split(/\s+/)[0] || ''),
-      studentLastName: meta?.studentLastName || '',
-      studentYear: meta?.studentYear || '',
-      parentName: meta?.parentName || '',
-      parentEmail: toEmail,
-      mode: meta?.mode || '',
-      feedbackType: meta?.feedbackType || '',
-      programKey: meta?.programKey || '',
-      programLabel: meta?.programLabel || '',
-      templateIndex: meta?.templateIndex || '',
-      lessonNumber: meta?.lessonNumber || '',
-      assessmentName: meta?.assessmentName || '',
-      completionStatus: meta?.completionStatus || '',
-      sourceForm: meta?.sourceForm || 'feedback',
-      year: meta?.year || '',
-      subject: meta?.subject || '',
-      strand: meta?.strand || '',
-      lesson: meta?.lesson || '',
-      topic: meta?.topic || '',
-      subjectLine: meta?.subjectLine || subject,
+      ...basePayload,
       messageId: info?.messageId || '',
+      sendStatus: 'sent',
     };
-
-    const privateLog = await appendFeedbackLog(payload).catch((err) => ({ saved: false, error: err?.message || 'private logging failed' }));
-    const webhook = process.env.FEEDBACK_LOG_WEBHOOK_URL;
-    if (!privateLog.saved && webhook) {
-      try {
-        const logRes = await fetch(webhook, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        if (!logRes.ok) console.error('Feedback logging failed', await logRes.text());
-      } catch (err) {
-        console.error('Feedback logging error', err);
-      }
-    }
+    const logResult = await persistFeedbackLog(payload);
 
     return res.status(200).json({
       ok: true,
@@ -200,9 +223,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       sender: fromAddress,
       replyTo,
       senderSource: resolvedFrom.source,
-      logged: privateLog.saved ? 'private-sheet' : webhook ? 'webhook' : 'not-configured',
+      logged: logResult.logged,
     });
   } catch (e: any) {
-    return res.status(500).json({ ok: false, error: e?.message || 'send failed' });
+    const failedPayload = {
+      ...basePayload,
+      messageId: '',
+      sendStatus: 'failed',
+    };
+    const logResult = await persistFeedbackLog(failedPayload).catch(() => ({ logged: 'not-saved', saved: false }));
+    return res.status(500).json({ ok: false, error: e?.message || 'send failed', logged: logResult.logged });
   }
 }
