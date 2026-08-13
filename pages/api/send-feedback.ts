@@ -4,6 +4,7 @@ import nodemailer from 'nodemailer';
 import { getAuthStatus } from '../../lib/auth';
 import { loadMembers } from '../../lib/members';
 import { appendFeedbackLog } from '../../lib/logs';
+import { relayRouteKey } from '../../lib/replyRelay';
 import { defaultCampusKey } from '../../lib/tutorConfig';
 
 function norm(v: any) { return String(v || '').trim(); }
@@ -154,9 +155,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const fromAddress = resolvedFrom.address;
   const fromName = senderDisplayName(campusName, campusKey);
   const centreInbox = headerSafe(process.env.REPLY_TO || '');
-  const relayEnabled = enabled(process.env.REPLY_RELAY_ENABLED);
+  const relayRequested = enabled(process.env.REPLY_RELAY_ENABLED);
+  if (relayRequested && !norm(process.env.REPLY_RELAY_SECRET)) {
+    return res.status(500).json({ ok: false, error: 'Reply relay is enabled but REPLY_RELAY_SECRET is not configured.' });
+  }
+  const relayEnabled = relayRequested;
   const conversationId = crypto.randomUUID();
-  const relayToken = crypto.randomBytes(24).toString('base64url');
+  const routeKey = relayRouteKey(campusKey) || 'centre';
+  const relayToken = `${routeKey}-${crypto.randomBytes(16).toString('hex')}`;
   const relayDomain = lower(process.env.REPLY_RELAY_DOMAIN || emailDomain(fromAddress) || 'st-feedback.site')
     .replace(/^@+/, '')
     .replace(/[^a-z0-9.-]/g, '');
