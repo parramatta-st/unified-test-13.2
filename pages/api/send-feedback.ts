@@ -155,11 +155,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const fromName = senderDisplayName(campusName, campusKey);
   const centreInbox = headerSafe(process.env.REPLY_TO || '');
   const relayEnabled = enabled(process.env.REPLY_RELAY_ENABLED);
-  // Relay mode is deliberately feature-flagged. Until it is enabled for a
-  // deployment, parents continue replying directly to the centre inbox.
-  const replyTo = relayEnabled ? fromAddress : (centreInbox || fromAddress);
   const conversationId = crypto.randomUUID();
   const relayToken = crypto.randomBytes(24).toString('base64url');
+  const relayDomain = lower(process.env.REPLY_RELAY_DOMAIN || emailDomain(fromAddress) || 'st-feedback.site')
+    .replace(/^@+/, '')
+    .replace(/[^a-z0-9.-]/g, '');
+  const relayAddress = `reply+${relayToken}@${relayDomain}`;
+  // Relay mode is deliberately feature-flagged. Until it is enabled for a
+  // deployment, parents continue replying directly to the centre inbox.
+  const replyTo = relayEnabled ? relayAddress : (centreInbox || fromAddress);
 
   if (!user || !pass) {
     return res.status(500).json({ ok: false, error: 'MAIL_USER/PASS not configured' });
