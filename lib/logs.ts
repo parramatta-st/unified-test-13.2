@@ -1,5 +1,6 @@
 import {
   appendSheetRows,
+  ensureSheet,
   loadRowsPrivateFirst,
   overwriteSheetRows,
   privateSheetsConfigured,
@@ -75,11 +76,24 @@ export async function loadFeedbackLogRows() {
 }
 
 export async function loadFeedbackMessageRows() {
+  const sheetName = feedbackMessagesSheetName();
+  const spreadsheetId = spreadsheetIdFor('FEEDBACK_MESSAGES');
+
+  // feedback_messages is an auxiliary inbox/event stream. Older centres can have
+  // years of feedback rows without this newer tab because it is only created when
+  // the first relay/read event is written. Reading a missing tab through the
+  // Sheets values API returns the misleading "Unable to parse range" error.
+  // Ensure the tab exists before reading so an untouched centre simply has an
+  // empty reply history rather than showing an error banner in the inbox.
+  if (privateSheetsConfigured()) {
+    await ensureSheet(sheetName, spreadsheetId);
+  }
+
   return loadRowsPrivateFirst({
     kind: 'FEEDBACK_MESSAGES',
-    sheetName: feedbackMessagesSheetName(),
+    sheetName,
     csvUrls: [],
-    spreadsheetId: spreadsheetIdFor('FEEDBACK_MESSAGES'),
+    spreadsheetId,
   });
 }
 
