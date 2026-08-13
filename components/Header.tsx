@@ -1,30 +1,70 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 export default function Header(){
   const router = useRouter();
   const [tutor,setTutor] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const loadUnread = useCallback(async () => {
+    try {
+      const response = await fetch('/api/inbox-unread', { cache: 'no-store' });
+      const json = await response.json().catch(() => ({}));
+      if (response.ok && json?.ok) setUnreadCount(Math.max(0, Number(json.unreadTotal || 0)));
+      else setUnreadCount(0);
+    } catch {
+      setUnreadCount(0);
+    }
+  }, []);
 
   useEffect(()=>{
+    let cancelled = false;
+    let interval = 0;
     try {
       setTutor(localStorage.getItem('st_tutor') || '');
-      // Use the role stored at login so the Admin nav slot is ready immediately.
-      // The API call below still verifies the role from the secure cookie/sheet.
       setIsAdmin(localStorage.getItem('st_is_admin') === '1');
     } catch {}
-    fetch('/api/admin-status')
+
+    const refreshFromEvent = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail;
+      if (detail && Number.isFinite(Number(detail.unreadTotal))) {
+        setUnreadCount(Math.max(0, Number(detail.unreadTotal)));
+      } else {
+        loadUnread();
+      }
+    };
+
+    fetch('/api/admin-status', { cache: 'no-store' })
       .then(r => r.json())
       .then(j => {
+        if (cancelled) return;
         const admin = !!j?.isAdmin;
         setIsAdmin(admin);
         try { localStorage.setItem('st_is_admin', admin ? '1' : '0'); } catch {}
+        if (admin) {
+          loadUnread();
+          interval = window.setInterval(loadUnread, 30000);
+        } else {
+          setUnreadCount(0);
+        }
       })
-      .catch(() => setIsAdmin(false));
-  },[]);
+      .catch(() => {
+        if (!cancelled) {
+          setIsAdmin(false);
+          setUnreadCount(0);
+        }
+      });
 
-  // On the login screen, the nav can be confusing (it just bounces you back to login).
+    window.addEventListener('st-inbox-refresh', refreshFromEvent);
+    return () => {
+      cancelled = true;
+      if (interval) window.clearInterval(interval);
+      window.removeEventListener('st-inbox-refresh', refreshFromEvent);
+    };
+  },[loadUnread]);
+
   const hideNav = router.pathname === '/login';
 
   function navClass(path: string) {
@@ -51,7 +91,16 @@ export default function Header(){
         {!hideNav && (
           <nav className="nav" aria-label="Main navigation">
             <Link className={navClass('/feedback')} href="/feedback" prefetch={false}>Feedback</Link>
-            <Link className={navClass('/sent-feedback')} href="/sent-feedback" prefetch={false}>Sent Feedback</Link>
+            <Link
+              className={`${navClass('/sent-feedback')} admin-nav-slot${isAdmin ? '' : ' is-hidden'}`}
+              href="/sent-feedback"
+              prefetch={false}
+              aria-hidden={!isAdmin}
+              tabIndex={isAdmin ? 0 : -1}
+            >
+              <span>Inbox</span>
+              {unreadCount > 0 && <span className="nav-unread" aria-label={`${unreadCount} unread feedback conversation${unreadCount === 1 ? '' : 's'}`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}
+            </Link>
             <Link className={navClass('/print')} href="/print" prefetch={false}>Print</Link>
             <Link className={navClass('/progress')} href="/progress" prefetch={false}>Progress</Link>
             <Link
@@ -69,6 +118,23 @@ export default function Header(){
           </nav>
         )}
       </div>
+      <style jsx>{`
+        .nav-unread {
+          display: inline-grid;
+          place-items: center;
+          min-width: 19px;
+          height: 19px;
+          margin-left: .32rem;
+          padding: 0 .3rem;
+          border-radius: 999px;
+          color: #fff;
+          background: #dc2626;
+          font-size: .68rem;
+          font-weight: 900;
+          line-height: 1;
+          box-shadow: 0 0 0 2px rgba(220,38,38,.12);
+        }
+      `}</style>
     </header>
   );
 }
