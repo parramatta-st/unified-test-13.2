@@ -2,16 +2,16 @@ import crypto from 'crypto';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import nodemailer from 'nodemailer';
 import { requireAdmin } from '../../lib/adminAuth';
-import { findFeedbackConversation, norm, readValue } from '../../lib/feedbackInbox';
+import { findFeedbackConversation, norm, readValue } from '../../lib/feedbackInboxClean';
 import { appendFeedbackMessage, loadFeedbackMessageRows } from '../../lib/logs';
+import { cleanReplySubject } from '../../lib/replyText';
 
 function headerSafe(value: any) {
   return String(value ?? '').replace(/[\r\n]+/g, ' ').trim();
 }
 
 function replySubject(value: string) {
-  const clean = headerSafe(value || 'Feedback');
-  return /^re\s*:/i.test(clean) ? clean : `Re: ${clean}`;
+  return `Re: ${cleanReplySubject(headerSafe(value || 'Feedback')) || 'Feedback'}`;
 }
 
 function escapeHtml(value: string) {

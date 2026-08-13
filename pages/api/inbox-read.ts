@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { requireAdmin } from '../../lib/adminAuth';
-import { findFeedbackConversation, norm } from '../../lib/feedbackInbox';
+import { findFeedbackConversation, norm } from '../../lib/feedbackInboxClean';
 import { appendFeedbackMessage } from '../../lib/logs';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {

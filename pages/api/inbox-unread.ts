@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { requireAdmin } from '../../lib/adminAuth';
-import { loadFeedbackInbox } from '../../lib/feedbackInbox';
+import { loadFeedbackInbox } from '../../lib/feedbackInboxClean';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
@@ -14,7 +14,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!admin.isAdmin) return res.status(403).json({ ok: false, error: 'Admin access required', unreadTotal: 0 });
 
   try {
-    const inbox = await loadFeedbackInbox(admin, { limit: 1000 });
+    const inbox = await loadFeedbackInbox(admin, { limit: 0 });
     return res.status(200).json({ ok: true, unreadTotal: inbox.unreadTotal });
   } catch (error: any) {
     console.error('inbox-unread error', error);
