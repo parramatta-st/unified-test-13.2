@@ -1,6 +1,15 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { appendFeedbackMessage, loadFeedbackMessageRows } from '../../lib/logs';
-import { findRelayConversation, lower, norm, readValue, relaySecretConfigured, relaySecretValid } from '../../lib/replyRelay';
+import {
+  findRelayConversation,
+  lower,
+  norm,
+  readValue,
+  relayHubMode,
+  relayHubTargetForToken,
+  relaySecretConfigured,
+  relaySecretValid,
+} from '../../lib/replyRelay';
 
 const ALLOWED_EVENTS = new Set(['parent_reply', 'centre_reply']);
 
@@ -29,6 +38,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   if (!relayToken || !conversationId || !gmailMessageId) {
     return res.status(400).json({ ok: false, error: 'Missing relayToken, conversationId, or gmailMessageId.' });
+  }
+
+  // In the dedicated hub deployment, forward the event to the centre whose
+  // route prefix is encoded in the relay token. The centre deployment stores
+  // the reply beside its own sent-feedback data, so no cross-centre database is
+  // required and each portal remains scoped to its own records.
+  if (relayHubMode()) {
+    const target = relayHubTargetForToken(relayToken);
+    if (!target) {
+      return res.status(404).json({ ok: false, error: 'No relay hub route is configured for this conversation.' });
+    }
+    try {
+      const upstream = await fetch(`${target}/api/reply-relay-webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-st-relay-secret': norm(req.headers['x-st-relay-secret']),
+        },
+        body: JSON.stringify(body),
+      });
+      const text = await upstream.text();
+      res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json; charset=utf-8');
+      return res.status(upstream.status).send(text);
+    } catch (error: any) {
+      console.error('reply-relay hub webhook proxy error', error);
+      return res.status(502).json({ ok: false, error: error?.message || 'Relay hub could not reach the centre.' });
+    }
   }
 
   try {
