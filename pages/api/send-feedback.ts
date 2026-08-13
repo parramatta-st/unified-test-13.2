@@ -16,6 +16,32 @@ function emailDomain(address: string) {
   return at > 0 ? value.slice(at + 1) : '';
 }
 
+function campusLabel(campusName: string, campusKey: string) {
+  const cleaned = headerSafe(campusName)
+    .replace(/\bsuccess\b/gi, ' ')
+    .replace(/\btutoring\b/gi, ' ')
+    .replace(/\bcentre\b/gi, ' ')
+    .replace(/\bcenter\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (cleaned) return cleaned;
+
+  return headerSafe(campusKey)
+    .replace(/^st[-_ ]*/i, '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function senderDisplayName(campusName: string, campusKey: string) {
+  const explicit = headerSafe(process.env.MAIL_FROM_NAME);
+  if (explicit) return explicit;
+
+  const label = campusLabel(campusName, campusKey);
+  return label ? `${label} Success Tutoring` : 'Success Tutoring';
+}
+
 function aliasLocalPart(campusName: string, campusKey: string) {
   // Prefer the human-readable campus name so abbreviations such as `stgv` do
   // not leak into the sender address. `Success Tutoring Green Valley` and
@@ -97,6 +123,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const campusName = headerSafe(process.env.NEXT_PUBLIC_CAMPUS_NAME || 'Success Tutoring');
   const resolvedFrom = resolveFromAddress(user, campusName, campusKey);
   const fromAddress = resolvedFrom.address;
+  const fromName = senderDisplayName(campusName, campusKey);
   const replyTo = headerSafe(process.env.REPLY_TO || fromAddress);
 
   if (!user || !pass) {
@@ -108,13 +135,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     console.info('Sending feedback email', {
       campusKey,
+      fromName,
       fromAddress,
       fromSource: resolvedFrom.source,
       replyTo,
     });
 
+    // Use an explicit mailbox string so the RFC From header always contains
+    // the professional campus display name as well as the campus alias.
+    const safeFromName = fromName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     const info = await transporter.sendMail({
-      from: { name: campusName, address: fromAddress },
+      from: `"${safeFromName}" <${fromAddress}>`,
       to: toEmail,
       replyTo,
       subject,
@@ -165,6 +196,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({
       ok: true,
       messageId: info?.messageId || '',
+      senderName: fromName,
       sender: fromAddress,
       replyTo,
       senderSource: resolvedFrom.source,
