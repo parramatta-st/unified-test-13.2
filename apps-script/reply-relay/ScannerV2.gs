@@ -72,7 +72,7 @@ function runReplyRelayV2() {
 
       if (centreInbox && sender === centreInbox) {
         console.log(`Relaying centre reply ${messageId} to ${conversation.parentEmail}.`);
-        handleCentreReply_(cfg, relayToken, conversation, message);
+        handleCentreReplyV2_(cfg, relayToken, conversation, message);
       } else {
         console.log(`Relaying parent reply ${messageId} to ${conversation.centreInbox}.`);
         handleParentReply_(cfg, relayToken, conversation, message);
@@ -86,6 +86,139 @@ function runReplyRelayV2() {
   });
 
   if (changed) saveProcessedIds_(processedList);
+}
+
+// Reply to the actual parent message, not GmailThread.reply(). GmailThread.reply()
+// targets the sender of the last message in the thread, which can be the centre
+// after Google Workspace routing has placed the centre reply into the thread.
+function handleCentreReplyV2_(cfg, relayToken, conversation, message) {
+  const sender = extractAddress_(message.getFrom());
+  const expected = String(conversation.centreInbox || '').toLowerCase();
+  if (!expected || sender !== expected) {
+    throw new Error(`Centre reply sender ${sender || '(unknown)'} does not match ${expected || '(missing centre inbox)'}.`);
+  }
+
+  const delivered = deliverCentreReplyToParentV2_(cfg, relayToken, conversation, message);
+
+  postRelayEvent_(cfg, {
+    eventType: 'centre_reply',
+    relayToken,
+    conversationId: conversation.conversationId,
+    campusKey: conversation.campusKey,
+    campusName: conversation.campusName,
+    direction: 'centre_to_parent',
+    actorRole: 'centre',
+    actorName: conversation.fromName || conversation.campusName || displayNameFromHeader_(message.getFrom()),
+    fromAddress: conversation.fromAddress,
+    toAddress: conversation.parentEmail,
+    subjectLine: conversation.subjectLine || message.getSubject(),
+    messageText: delivered.body,
+    gmailMessageId: delivered.sentMessage ? delivered.sentMessage.getId() : message.getId(),
+    gmailThreadId: delivered.gmailThreadId,
+    sourceMessageId: message.getId(),
+    sendStatus: 'sent_to_parent',
+    attachmentNames: delivered.attachmentNames,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+function deliverCentreReplyToParentV2_(cfg, relayToken, conversation, message) {
+  const parentMessage = findParentRelayMessageV2_(conversation);
+  const parentAddress = extractAddress_(parentMessage.getFrom());
+  const expectedParent = String(conversation.parentEmail || '').toLowerCase();
+  if (!expectedParent || parentAddress !== expectedParent) {
+    throw new Error(`Parent message sender ${parentAddress || '(unknown)'} does not match ${expectedParent || '(missing parent email)'}.`);
+  }
+
+  const relayAddress = `reply+${relayToken}@${cfg.relayDomain}`;
+  const body = cleanIncomingBody_(message.getPlainBody());
+  if (!body) throw new Error('The centre reply did not contain any new message text.');
+
+  const attachments = message.getAttachments({ includeInlineImages: false, includeAttachments: true });
+  const attachmentNames = attachments.map((file) => file.getName());
+
+  // GmailMessage.reply() replies to the sender of this specific parent message,
+  // so delivery cannot accidentally loop back to the centre.
+  parentMessage.reply(
+    body,
+    gmailSendOptions_(conversation.fromAddress, conversation.fromName || conversation.campusName || 'Success Tutoring', relayAddress, attachments),
+  );
+
+  const gmailThreadId = parentMessage.getThread().getId();
+  const refreshed = GmailApp.getThreadById(gmailThreadId);
+  const sentMessages = refreshed ? refreshed.getMessages() : [];
+  const sentMessage = sentMessages.length ? sentMessages[sentMessages.length - 1] : null;
+
+  return { body, attachmentNames, sentMessage, gmailThreadId };
+}
+
+function findParentRelayMessageV2_(conversation) {
+  if (!conversation.gmailThreadId) {
+    throw new Error('No parent Gmail thread is recorded for this relay conversation.');
+  }
+
+  const thread = GmailApp.getThreadById(conversation.gmailThreadId);
+  if (!thread) throw new Error('The original parent Gmail thread could not be found.');
+
+  const expectedParent = String(conversation.parentEmail || '').toLowerCase();
+  const messages = thread.getMessages();
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const candidate = messages[index];
+    if (extractAddress_(candidate.getFrom()) === expectedParent) return candidate;
+  }
+
+  throw new Error(`No Gmail message from parent ${expectedParent || '(missing email)'} was found in the recorded thread.`);
+}
+
+// One-time recovery helper for a centre reply that the old implementation
+// already logged but accidentally replied back to the centre. It deliberately
+// sends only; it does not post another portal event, so the archive is not
+// duplicated. Run this once immediately after upgrading ScannerV2 if needed.
+function retryLatestCentreReplyDeliveryV2() {
+  const cfg = relayConfig_();
+  const queries = [
+    `in:inbox newer_than:${cfg.lookbackDays}d from:successtutoring.com.au`,
+    `in:inbox newer_than:${cfg.lookbackDays}d from:successtutoring.com`,
+  ];
+
+  const messagesById = new Map();
+  queries.forEach((query) => {
+    GmailApp.search(query, 0, cfg.maxThreads).forEach((thread) => {
+      thread.getMessages().forEach((message) => messagesById.set(message.getId(), message));
+    });
+  });
+
+  const messages = Array.from(messagesById.values());
+  messages.sort((a, b) => b.getDate().getTime() - a.getDate().getTime());
+
+  for (const message of messages) {
+    const sender = extractAddress_(message.getFrom());
+    if (!isPotentialCentreSender_(sender)) continue;
+
+    try {
+      let relayToken = relayTokenFromMessage_(message, cfg.relayDomain);
+      let conversation = null;
+      if (relayToken) {
+        conversation = lookupConversation_(cfg, relayToken);
+      } else {
+        const route = relayRouteFromMessage_(message, cfg.relayDomain) || relayRouteFromSender_(sender);
+        if (!route) continue;
+        conversation = lookupCentreConversationFallback_(cfg, route, sender, message.getSubject());
+        relayToken = String(conversation.relayToken || '');
+      }
+
+      if (!conversation || !relayToken) continue;
+      if (String(conversation.centreInbox || '').toLowerCase() !== sender) continue;
+
+      deliverCentreReplyToParentV2_(cfg, relayToken, conversation, message);
+      console.log(`Re-delivered centre reply ${message.getId()} to ${conversation.parentEmail} without duplicating the portal log.`);
+      return;
+    } catch (error) {
+      console.log(`Skipped centre message ${message.getId()} during recovery: ${error && error.message ? error.message : error}`);
+    }
+  }
+
+  throw new Error('No recoverable centre reply was found.');
 }
 
 function installMinuteTriggerV2() {
