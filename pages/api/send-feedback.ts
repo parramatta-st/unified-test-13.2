@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import nodemailer from 'nodemailer';
 import { getAuthStatus } from '../../lib/auth';
@@ -9,6 +10,10 @@ function norm(v: any) { return String(v || '').trim(); }
 function lower(v: any) { return norm(v).toLowerCase(); }
 // Email headers must never contain CR/LF (header injection).
 function headerSafe(v: any) { return String(v || '').replace(/[\r\n]+/g, ' ').trim(); }
+
+function enabled(v: any) {
+  return /^(1|true|yes|on)$/i.test(norm(v));
+}
 
 function emailDomain(address: string) {
   const value = lower(address);
@@ -148,7 +153,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const resolvedFrom = resolveFromAddress(user, campusName, campusKey);
   const fromAddress = resolvedFrom.address;
   const fromName = senderDisplayName(campusName, campusKey);
-  const replyTo = headerSafe(process.env.REPLY_TO || fromAddress);
+  const centreInbox = headerSafe(process.env.REPLY_TO || '');
+  const relayEnabled = enabled(process.env.REPLY_RELAY_ENABLED);
+  // Relay mode is deliberately feature-flagged. Until it is enabled for a
+  // deployment, parents continue replying directly to the centre inbox.
+  const replyTo = relayEnabled ? fromAddress : (centreInbox || fromAddress);
+  const conversationId = crypto.randomUUID();
+  const relayToken = crypto.randomBytes(24).toString('base64url');
 
   if (!user || !pass) {
     return res.status(500).json({ ok: false, error: 'MAIL_USER/PASS not configured' });
@@ -184,6 +195,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     fromName,
     fromAddress,
     replyTo,
+    centreInbox,
+    relayEnabled: relayEnabled ? 'TRUE' : 'FALSE',
+    conversationId,
+    relayToken,
     messageText: String(text),
   };
 
@@ -196,6 +211,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       fromAddress,
       fromSource: resolvedFrom.source,
       replyTo,
+      relayEnabled,
+      conversationId,
     });
 
     // Use an explicit mailbox string so the RFC From header always contains
@@ -207,6 +224,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       replyTo,
       subject,
       text,
+      headers: {
+        'X-ST-Conversation-ID': conversationId,
+        'X-ST-Relay-Token': relayToken,
+        'X-ST-Campus-Key': campusKey,
+        'X-ST-Relay-Enabled': relayEnabled ? '1' : '0',
+      },
     });
 
     const payload = {
@@ -219,9 +242,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({
       ok: true,
       messageId: info?.messageId || '',
+      conversationId,
       senderName: fromName,
       sender: fromAddress,
       replyTo,
+      relayEnabled,
       senderSource: resolvedFrom.source,
       logged: logResult.logged,
     });
