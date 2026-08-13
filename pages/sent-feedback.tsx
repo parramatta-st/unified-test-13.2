@@ -134,8 +134,8 @@ function campusSignatureName(campusName: string) {
     .replace(/\bsuccess\s+tutoring\b/gi, ' ')
     .replace(/\bsuccess\b/gi, ' ')
     .replace(/\btutoring\b/gi, ' ')
-    .replace(/\bcentre\b/gi, ' ')
-    .replace(/\bcenter\b/gi, ' ')
+    .replace(/\bcentre\b/g, ' ')
+    .replace(/\bcenter\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return clean || norm(campusName) || 'Success Tutoring';
@@ -189,6 +189,8 @@ export default function SentFeedbackPage() {
   const [sendNotice, setSendNotice] = useState('');
   const [markingRead, setMarkingRead] = useState(false);
   const readTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const composerRef = useRef<HTMLElement | null>(null);
+  const replyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -216,7 +218,7 @@ export default function SentFeedbackPage() {
     if (!quiet) setLoading(true);
     setError('');
     try {
-      const response = await fetch(`/api/sent-feedback?limit=1000&_cb=${Date.now()}`, { cache: 'no-store' });
+      const response = await fetch(`/api/sent-feedback?_cb=${Date.now()}`, { cache: 'no-store' });
       const json = await response.json().catch(() => ({})) as InboxResponse;
       if (!response.ok || !json.ok) throw new Error(json.error || 'Could not load the feedback inbox.');
       const next = Array.isArray(json.items) ? json.items : [];
@@ -262,14 +264,18 @@ export default function SentFeedbackPage() {
 
   const selected = useMemo(() => {
     if (!selectedId) return null;
-    return filtered.find((item) => item.id === selectedId) || null;
-  }, [filtered, selectedId]);
+    return items.find((item) => item.id === selectedId) || null;
+  }, [items, selectedId]);
 
   useEffect(() => {
     if (!selected) return;
     setReplyText('');
     setReplyOpen(false);
     setSendNotice('');
+  }, [selected?.conversationId]);
+
+  useEffect(() => {
+    if (!selected) return;
     let storedTutor = adminTutor;
     let storedCampus = selected.campusName;
     try {
@@ -317,6 +323,19 @@ export default function SentFeedbackPage() {
 
   function selectConversation(item: InboxConversation) {
     setSelectedId(item.id);
+  }
+
+  function openReplyComposer() {
+    if (!selected?.canReply) {
+      setSendNotice('This older feedback record does not contain enough email information to reply from the portal.');
+      return;
+    }
+    setReplyOpen(true);
+    setSendNotice('');
+    window.setTimeout(() => {
+      composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      replyTextareaRef.current?.focus();
+    }, 30);
   }
 
   function updateActorName(value: string) {
@@ -406,7 +425,7 @@ export default function SentFeedbackPage() {
             <span className="folder-icon">!</span><span>Failed</span><span className="folder-count">{folderCounts.failed}</span>
           </button>
           <button className={`folder-button${folder === 'all' ? ' active' : ''}`} onClick={() => setFolder('all')}>
-            <span className="folder-icon">▤</span><span>All feedback</span><span className="folder-count">{folderCounts.all}</span>
+            <span className="folder-icon">▤</span><span>All feedback</span><span className="folder-count">{total || folderCounts.all}</span>
           </button>
           <div className="sidebar-note">
             Admin-only inbox for portal feedback conversations. Read status is shared by the centre’s admins.
@@ -480,7 +499,12 @@ export default function SentFeedbackPage() {
                     </div>
                     <div className="thread-actions">
                       {selected.isUnread && <button className="small-button" onClick={() => markConversationRead(selected)}>Mark read</button>}
-                      <button className="primary-reply" onClick={() => setReplyOpen((current) => !current)} disabled={!selected.canReply}>↩ Reply</button>
+                      <button
+                        className="primary-reply"
+                        onClick={openReplyComposer}
+                        disabled={!selected.canReply}
+                        title={selected.canReply ? 'Reply to this parent' : 'Reply unavailable for this older feedback record'}
+                      >↩ Reply</button>
                     </div>
                   </header>
 
@@ -527,9 +551,11 @@ export default function SentFeedbackPage() {
                     })}
                   </section>
 
-                  <section className={`reply-composer${replyOpen ? ' open' : ''}`}>
-                    {!replyOpen ? (
-                      <button className="reply-placeholder" onClick={() => setReplyOpen(true)} disabled={!selected.canReply}>
+                  <section ref={composerRef} className={`reply-composer${replyOpen ? ' open' : ''}`}>
+                    {!selected.canReply ? (
+                      <div className="reply-unavailable">Reply from portal is unavailable for this older feedback record because its conversation/sender metadata was not stored.</div>
+                    ) : !replyOpen ? (
+                      <button className="reply-placeholder" onClick={openReplyComposer}>
                         ↩ Reply to {selected.parentName || selected.parentEmail || 'parent'}
                       </button>
                     ) : (
@@ -539,6 +565,7 @@ export default function SentFeedbackPage() {
                           <button className="composer-close" onClick={() => setReplyOpen(false)} aria-label="Close reply composer">×</button>
                         </div>
                         <textarea
+                          ref={replyTextareaRef}
                           className="reply-textarea"
                           value={replyText}
                           onChange={(event) => setReplyText(event.target.value)}
@@ -619,7 +646,7 @@ export default function SentFeedbackPage() {
         .thread-snippet { color: var(--muted); font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .thread-meta { color: #64748b; font-size: .7rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .unread-pill { align-self: center; min-width: 24px; height: 24px; padding: 0 .4rem; border-radius: 999px; display: grid; place-items: center; background: #2563eb; color: white; font-size: .72rem; font-weight: 900; }
-        .thread-view { min-width: 0; overflow-y: auto; max-height: calc(100vh - 10rem); background: #0d1015; }
+        .thread-view { min-width: 0; overflow-y: auto; max-height: calc(100vh - 10rem); background: #0d1015; scroll-behavior: smooth; }
         .thread-header { position: sticky; top: 0; z-index: 3; padding: 1.1rem 1.25rem; display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; border-bottom: 1px solid var(--border); background: rgba(13,16,21,.95); backdrop-filter: blur(10px); }
         .thread-kicker { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; }
         .thread-header h2 { margin: .25rem 0 .35rem; font-size: 1.25rem; line-height: 1.3; }
@@ -643,19 +670,21 @@ export default function SentFeedbackPage() {
         .centre-message .message-avatar { background: rgba(249,115,22,.2); color: #fed7aa; }
         .attachment-list { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .75rem; }
         .attachment-list span { border: 1px solid var(--border); border-radius: 10px; padding: .35rem .55rem; color: var(--text-dim); font-size: .75rem; }
-        .reply-composer { margin: 1rem 1.25rem 1.5rem; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: rgba(255,255,255,.025); }
+        .reply-composer { margin: 1rem 1.25rem 1.5rem; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: rgba(255,255,255,.025); scroll-margin-block: 5rem; }
+        .reply-composer.open { border-color: rgba(249,115,22,.45); box-shadow: 0 10px 40px rgba(0,0,0,.2); }
         .reply-placeholder { width: 100%; border: 0; background: transparent; color: var(--muted); text-align: left; padding: 1rem; cursor: pointer; font: inherit; }
         .reply-placeholder:hover { background: rgba(255,255,255,.035); color: var(--text); }
+        .reply-unavailable { padding: 1rem; color: var(--muted); font-size: .82rem; line-height: 1.5; }
         .composer-heading { display: flex; justify-content: space-between; align-items: center; padding: .75rem 1rem; border-bottom: 1px solid var(--border); }
         .composer-heading > div { display: flex; gap: .45rem; align-items: baseline; }
         .composer-heading span { color: var(--muted); font-size: .78rem; }
         .composer-close { border: 0; background: transparent; color: var(--muted); font-size: 1.35rem; cursor: pointer; }
-        .reply-textarea { width: 100%; min-height: 150px; resize: vertical; border: 0; outline: 0; background: transparent; color: var(--text); padding: 1rem; font: inherit; line-height: 1.55; }
+        .reply-textarea { box-sizing: border-box; width: 100%; min-height: 150px; resize: vertical; border: 0; outline: 0; background: transparent; color: var(--text); padding: 1rem; font: inherit; line-height: 1.55; }
         .signature-grid { padding: 0 1rem 1rem; display: grid; grid-template-columns: minmax(180px,.7fr) minmax(260px,1.3fr); gap: .75rem; }
         .signature-grid label { display: flex; flex-direction: column; gap: .35rem; }
         .signature-grid label > span { color: var(--muted); font-size: .74rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
         .signature-grid small { text-transform: none; letter-spacing: 0; font-weight: 500; }
-        .signature-grid input, .signature-grid textarea { border: 1px solid var(--border); border-radius: 10px; background: rgba(0,0,0,.22); color: var(--text); padding: .7rem .75rem; font: inherit; resize: vertical; }
+        .signature-grid input, .signature-grid textarea { box-sizing: border-box; width: 100%; border: 1px solid var(--border); border-radius: 10px; background: rgba(0,0,0,.22); color: var(--text); padding: .7rem .75rem; font: inherit; resize: vertical; }
         .signature-toggle { margin: 0 1rem .8rem; display: flex; align-items: center; gap: .5rem; color: var(--muted); font-size: .8rem; }
         .composer-footer { padding: .75rem 1rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
         .from-hint { color: var(--muted); font-size: .72rem; overflow-wrap: anywhere; }

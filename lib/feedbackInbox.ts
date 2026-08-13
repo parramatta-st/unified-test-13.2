@@ -151,8 +151,14 @@ export async function loadFeedbackInbox(
   auth: Pick<AuthStatus, 'campus'>,
   options: { limit?: number } = {},
 ): Promise<FeedbackInboxLoad> {
-  const rawLimit = Number(options.limit || 300);
-  const limit = Math.min(1000, Math.max(20, Number.isFinite(rawLimit) ? Math.floor(rawLimit) : 300));
+  // A positive limit is supported for lightweight callers. A missing, zero or
+  // negative limit means "all centre feedback". This is important for the admin
+  // inbox because the Google Sheet has already been read in full at this point;
+  // slicing to 1000 only hid older feedback without saving any Sheets work.
+  const requestedLimit = Number(options.limit ?? 0);
+  const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+    ? Math.max(1, Math.floor(requestedLimit))
+    : 0;
 
   const loaded = await loadFeedbackLogRows();
   const messageLoaded = await loadFeedbackMessageRows().catch((error: any) => ({
@@ -268,7 +274,7 @@ export async function loadFeedbackInbox(
   const unreadTotal = allItems.filter((item) => item.isUnread).length;
 
   return {
-    items: allItems.slice(0, limit),
+    items: limit ? allItems.slice(0, limit) : allItems,
     total: scopedRows.length,
     unreadTotal,
     source: loaded.source || '',
@@ -283,6 +289,8 @@ export async function findFeedbackConversation(
 ) {
   const target = norm(conversationId);
   if (!target) return null;
-  const inbox = await loadFeedbackInbox(auth, { limit: 1000 });
+  // Do not cap this lookup. A parent must remain replyable even when the
+  // conversation is older than the newest 1000 feedback records.
+  const inbox = await loadFeedbackInbox(auth, { limit: 0 });
   return inbox.items.find((item) => item.conversationId === target) || null;
 }
