@@ -13,7 +13,14 @@ export const FEEDBACK_LOG_HEADERS = [
   'timestamp', 'campusKey', 'campusName', 'tutorName', 'studentId', 'studentName', 'studentFirstName', 'studentLastName', 'studentYear',
   'parentName', 'parentEmail', 'mode', 'feedbackType', 'programKey', 'programLabel', 'templateIndex', 'lessonNumber', 'assessmentName',
   'completionStatus', 'sourceForm', 'year', 'subject', 'strand', 'lesson', 'topic', 'subjectLine', 'messageId',
-  'fromName', 'fromAddress', 'replyTo', 'messageText', 'sendStatus'
+  'fromName', 'fromAddress', 'replyTo', 'messageText', 'sendStatus',
+  'conversationId', 'relayToken', 'centreInbox', 'relayEnabled'
+];
+
+export const FEEDBACK_MESSAGE_HEADERS = [
+  'timestamp', 'conversationId', 'campusKey', 'campusName', 'eventType', 'direction', 'actorRole', 'actorName',
+  'fromAddress', 'toAddress', 'subjectLine', 'messageText', 'gmailMessageId', 'gmailThreadId', 'sourceMessageId',
+  'sendStatus', 'attachmentNames'
 ];
 
 export const PRINT_LOG_HEADERS = [
@@ -21,6 +28,10 @@ export const PRINT_LOG_HEADERS = [
 ];
 
 function norm(v: any) { return String(v ?? '').trim(); }
+
+function feedbackMessagesSheetName() {
+  return norm(process.env.FEEDBACK_MESSAGES_SHEET_NAME) || 'feedback_messages';
+}
 
 function formatPrintLogTimestamp(value: any) {
   const date = value ? new Date(value) : new Date();
@@ -60,6 +71,15 @@ export async function loadFeedbackLogRows() {
       process.env.SENTMSGS_CSV_URL || '',
       process.env.NEXT_PUBLIC_SENTMSGS_CSV_URL || '',
     ],
+  });
+}
+
+export async function loadFeedbackMessageRows() {
+  return loadRowsPrivateFirst({
+    kind: 'FEEDBACK_MESSAGES',
+    sheetName: feedbackMessagesSheetName(),
+    csvUrls: [],
+    spreadsheetId: spreadsheetIdFor('FEEDBACK_MESSAGES'),
   });
 }
 
@@ -106,6 +126,19 @@ export async function appendFeedbackLog(payload: any) {
   return { saved: true };
 }
 
+export async function appendFeedbackMessage(payload: any) {
+  if (!privateSheetsConfigured()) return { saved: false, reason: 'private sheets not configured' };
+  const row: Record<string, any> = { ...payload };
+  row.timestamp = row.timestamp || new Date().toISOString();
+  await appendSheetRows(
+    feedbackMessagesSheetName(),
+    FEEDBACK_MESSAGE_HEADERS,
+    [row],
+    spreadsheetIdFor('FEEDBACK_MESSAGES'),
+  );
+  return { saved: true };
+}
+
 export function buildPrintLogRow(body: any) {
   const raw = body || {};
   const names = Array.isArray(raw.names) ? raw.names : raw.names ? [raw.names] : [];
@@ -130,4 +163,5 @@ export function buildPrintLogRow(body: any) {
 export async function appendPrintLog(payload: any) {
   if (!privateSheetsConfigured()) return { saved: false, reason: 'private sheets not configured' };
   await appendSheetRows(sheetNames.printLog(), PRINT_LOG_HEADERS, [buildPrintLogRow(payload)], spreadsheetIdFor('PRINT_LOG'));
+  return { saved: true };
 }
