@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getAuthStatus } from '../../lib/auth';
-import { loadFeedbackLogRows } from '../../lib/logs';
+import { loadFeedbackLogRows, loadFeedbackMessageRows } from '../../lib/logs';
 import { defaultCampusKey, defaultCampusName } from '../../lib/tutorConfig';
 
 function norm(value: any) { return String(value ?? '').trim(); }
@@ -37,6 +37,14 @@ function statusValue(row: any) {
   const explicit = lower(readValue(row, 'sendStatus', 'Send Status', 'status', 'Status'));
   if (explicit === 'failed' || explicit === 'error') return 'failed';
   return 'sent';
+}
+
+function booleanValue(value: any) {
+  return /^(1|true|yes|on)$/i.test(norm(value));
+}
+
+function attachmentList(value: any) {
+  return norm(value).split('|').map((part) => part.trim()).filter(Boolean);
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -78,16 +86,49 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return !!rowCampusName && allowedCampusNames.has(campusToken(rowCampusName));
     });
 
+    const messageLoaded = await loadFeedbackMessageRows().catch(() => ({ rows: [] as any[], warning: '', source: '' }));
+    const messagesByConversation = new Map<string, any[]>();
+    for (const row of messageLoaded.rows || []) {
+      const conversationId = readValue(row, 'conversationId', 'Conversation ID');
+      if (!conversationId) continue;
+      const event = {
+        timestamp: readValue(row, 'timestamp', 'Timestamp'),
+        eventType: readValue(row, 'eventType', 'Event Type'),
+        direction: readValue(row, 'direction', 'Direction'),
+        actorRole: readValue(row, 'actorRole', 'Actor Role'),
+        actorName: readValue(row, 'actorName', 'Actor Name'),
+        fromAddress: readValue(row, 'fromAddress', 'From Address'),
+        toAddress: readValue(row, 'toAddress', 'To Address'),
+        subjectLine: readValue(row, 'subjectLine', 'Subject Line'),
+        messageText: readValue(row, 'messageText', 'Message Text'),
+        gmailMessageId: readValue(row, 'gmailMessageId', 'Gmail Message ID'),
+        gmailThreadId: readValue(row, 'gmailThreadId', 'Gmail Thread ID'),
+        sourceMessageId: readValue(row, 'sourceMessageId', 'Source Message ID'),
+        sendStatus: readValue(row, 'sendStatus', 'Send Status'),
+        attachmentNames: attachmentList(readValue(row, 'attachmentNames', 'Attachment Names')),
+      };
+      const current = messagesByConversation.get(conversationId) || [];
+      current.push(event);
+      messagesByConversation.set(conversationId, current);
+    }
+    for (const messages of messagesByConversation.values()) {
+      messages.sort((a, b) => timestampMs(a.timestamp) - timestampMs(b.timestamp));
+    }
+
     const items = scopedRows
       .map((row: any, index: number) => {
         const timestamp = readValue(row, 'timestamp', 'Timestamp', 'when', 'When');
         const messageId = readValue(row, 'messageId', 'Message ID', 'message_id');
+        const conversationId = readValue(row, 'conversationId', 'Conversation ID');
         const campusName = readValue(row, 'campusName', 'Campus Name') || process.env.NEXT_PUBLIC_CAMPUS_NAME || defaultCampusName();
         const studentName = readValue(row, 'studentName', 'Student Name', 'student', 'Student');
         const subjectLine = readValue(row, 'subjectLine', 'Subject Line', 'emailSubject', 'Email Subject');
+        const conversationMessages = conversationId ? (messagesByConversation.get(conversationId) || []) : [];
+        const latestReplyAt = conversationMessages.length ? conversationMessages[conversationMessages.length - 1].timestamp : '';
         return {
           id: messageId || `${timestamp || 'row'}-${studentName || 'student'}-${index}`,
           timestamp,
+          conversationId,
           campusKey: readValue(row, 'campusKey', 'Campus Key', 'campus', 'Campus') || auth.campus,
           campusName,
           tutorName: readValue(row, 'tutorName', 'Tutor Name', 'tutor', 'Tutor'),
@@ -99,6 +140,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           fromName: readValue(row, 'fromName', 'From Name', 'senderName', 'Sender Name'),
           fromAddress: readValue(row, 'fromAddress', 'From Address', 'senderEmail', 'Sender Email', 'fromEmail', 'From Email'),
           replyTo: readValue(row, 'replyTo', 'Reply To', 'reply-to', 'Reply-To'),
+          centreInbox: readValue(row, 'centreInbox', 'Centre Inbox'),
+          relayEnabled: booleanValue(readValue(row, 'relayEnabled', 'Relay Enabled')),
           subjectLine,
           messageText: readValue(row, 'messageText', 'Message Text', 'emailBody', 'Email Body', 'feedbackText', 'Feedback Text', 'feedback', 'Feedback', 'text', 'Text'),
           sendStatus: statusValue(row),
@@ -115,7 +158,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           lesson: readValue(row, 'lesson', 'Lesson'),
           topic: readValue(row, 'topic', 'Topic'),
           sourceForm: readValue(row, 'sourceForm', 'Source Form'),
-          sortMs: timestampMs(timestamp),
+          replies: conversationMessages,
+          replyCount: conversationMessages.length,
+          latestReplyAt,
+          sortMs: Math.max(timestampMs(timestamp), timestampMs(latestReplyAt)),
         };
       })
       .sort((a: any, b: any) => b.sortMs - a.sortMs)
