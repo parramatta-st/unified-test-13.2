@@ -24,7 +24,6 @@ export default function Header(){
     let interval = 0;
     try {
       setTutor(localStorage.getItem('st_tutor') || '');
-      setIsAdmin(localStorage.getItem('st_is_admin') === '1');
     } catch {}
 
     const refreshFromEvent = (event: Event) => {
@@ -36,6 +35,9 @@ export default function Header(){
       }
     };
 
+    // Do not trust the cached admin flag for rendering. Waiting for the signed
+    // server session prevents non-admin tutors from briefly inheriting hidden
+    // admin navigation slots from a previous browser session.
     fetch('/api/admin-status', { cache: 'no-store' })
       .then(r => r.json())
       .then(j => {
@@ -91,27 +93,17 @@ export default function Header(){
         {!hideNav && (
           <nav className="nav" aria-label="Main navigation">
             <Link className={navClass('/feedback')} href="/feedback" prefetch={false}>Feedback</Link>
-            <Link
-              className={`${navClass('/sent-feedback')} admin-nav-slot${isAdmin ? '' : ' is-hidden'}`}
-              href="/sent-feedback"
-              prefetch={false}
-              aria-hidden={!isAdmin}
-              tabIndex={isAdmin ? 0 : -1}
-            >
-              <span>Inbox</span>
-              {unreadCount > 0 && <span className="nav-unread" aria-label={`${unreadCount} unread feedback conversation${unreadCount === 1 ? '' : 's'}`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}
-            </Link>
+            {isAdmin && (
+              <Link className={navClass('/sent-feedback')} href="/sent-feedback" prefetch={false}>
+                <span>Inbox</span>
+                {unreadCount > 0 && <span className="nav-unread" aria-label={`${unreadCount} unread feedback conversation${unreadCount === 1 ? '' : 's'}`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}
+              </Link>
+            )}
             <Link className={navClass('/print')} href="/print" prefetch={false}>Print</Link>
             <Link className={navClass('/progress')} href="/progress" prefetch={false}>Progress</Link>
-            <Link
-              className={`${navClass('/admin')} admin-nav-slot${isAdmin ? '' : ' is-hidden'}`}
-              href="/admin"
-              prefetch={false}
-              aria-hidden={!isAdmin}
-              tabIndex={isAdmin ? 0 : -1}
-            >
-              Admin
-            </Link>
+            {isAdmin && (
+              <Link className={navClass('/admin')} href="/admin" prefetch={false}>Admin</Link>
+            )}
             <button className="btn nav-pill logout-pill" onClick={doLogout} aria-label="Logout">
               Logout{tutor ? ` (${tutor})` : ''}
             </button>
@@ -119,6 +111,12 @@ export default function Header(){
         )}
       </div>
       <style jsx>{`
+        .nav {
+          align-items: center;
+          justify-content: flex-end;
+          flex-wrap: nowrap;
+        }
+        .logout-pill { white-space: nowrap; }
         .nav-unread {
           display: inline-grid;
           place-items: center;
@@ -133,6 +131,16 @@ export default function Header(){
           font-weight: 900;
           line-height: 1;
           box-shadow: 0 0 0 2px rgba(220,38,38,.12);
+        }
+        @media (max-width: 760px) {
+          .header-inner { flex-wrap: wrap; }
+          .nav {
+            width: 100%;
+            margin-left: 0;
+            justify-content: flex-start;
+            overflow-x: auto;
+            padding-bottom: .1rem;
+          }
         }
       `}</style>
     </header>
