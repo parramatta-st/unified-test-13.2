@@ -1,9 +1,19 @@
-import { appendSheetRows, loadRowsPrivateFirst, privateSheetsConfigured, sheetNames, spreadsheetIdFor } from './googleSheets';
+import {
+  appendSheetRows,
+  loadRowsPrivateFirst,
+  overwriteSheetRows,
+  privateSheetsConfigured,
+  readSheetValues,
+  rowsToObjects,
+  sheetNames,
+  spreadsheetIdFor,
+} from './googleSheets';
 
 export const FEEDBACK_LOG_HEADERS = [
   'timestamp', 'campusKey', 'campusName', 'tutorName', 'studentId', 'studentName', 'studentFirstName', 'studentLastName', 'studentYear',
   'parentName', 'parentEmail', 'mode', 'feedbackType', 'programKey', 'programLabel', 'templateIndex', 'lessonNumber', 'assessmentName',
-  'completionStatus', 'sourceForm', 'year', 'subject', 'strand', 'lesson', 'topic', 'subjectLine', 'messageId'
+  'completionStatus', 'sourceForm', 'year', 'subject', 'strand', 'lesson', 'topic', 'subjectLine', 'messageId',
+  'fromName', 'fromAddress', 'replyTo', 'messageText', 'sendStatus'
 ];
 
 export const PRINT_LOG_HEADERS = [
@@ -60,17 +70,39 @@ export async function loadPrintLogRows() {
     csvUrls: [
       process.env.PRINT_LOG_CSV_URL || '',
       process.env.PRINT_PROGRESS_CSV_URL || '',
-      process.env.NEXT_PUBLIC_PRINT_LOG_CSV_URL || '',
+      process.env.NEXT_PUBLIC_PRINT_PROGRESS_CSV_URL || '',
       process.env.PRINT_LOG_READ_CSV_URL || '',
     ],
   });
+}
+
+async function ensureFeedbackLogSchema(sheetName: string, spreadsheetId: string) {
+  const existing = await readSheetValues(sheetName, spreadsheetId).catch(() => [] as any[][]);
+  if (!existing.length) return FEEDBACK_LOG_HEADERS;
+
+  const currentHeaders = (existing[0] || []).map((value: any) => norm(value)).filter(Boolean);
+  if (!currentHeaders.length) return FEEDBACK_LOG_HEADERS;
+
+  const missingHeaders = FEEDBACK_LOG_HEADERS.filter((header) => !currentHeaders.includes(header));
+  if (!missingHeaders.length) return currentHeaders;
+
+  // Preserve the exact existing column order and append only new archive fields.
+  // Rewriting as objects prevents any historical feedback values from shifting
+  // under a different heading while the sheet schema is upgraded.
+  const upgradedHeaders = [...currentHeaders, ...missingHeaders];
+  const existingRows = rowsToObjects(existing);
+  await overwriteSheetRows(sheetName, upgradedHeaders, existingRows, spreadsheetId);
+  return upgradedHeaders;
 }
 
 export async function appendFeedbackLog(payload: any) {
   if (!privateSheetsConfigured()) return { saved: false, reason: 'private sheets not configured' };
   const row: Record<string, any> = { ...payload };
   row.timestamp = row.timestamp || row.when || new Date().toISOString();
-  await appendSheetRows(sheetNames.feedbackLog(), FEEDBACK_LOG_HEADERS, [row], spreadsheetIdFor('FEEDBACK_LOG'));
+  const sheetName = sheetNames.feedbackLog();
+  const spreadsheetId = spreadsheetIdFor('FEEDBACK_LOG');
+  const headers = await ensureFeedbackLogSchema(sheetName, spreadsheetId);
+  await appendSheetRows(sheetName, headers, [row], spreadsheetId);
   return { saved: true };
 }
 
