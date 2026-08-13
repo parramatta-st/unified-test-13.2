@@ -51,6 +51,7 @@ export default function Header(){
         {!hideNav && (
           <nav className="nav" aria-label="Main navigation">
             <Link className={navClass('/feedback')} href="/feedback" prefetch={false}>Feedback</Link>
+            <Link className={navClass('/sent-feedback')} href="/sent-feedback" prefetch={false}>Sent Feedback</Link>
             <Link className={navClass('/print')} href="/print" prefetch={false}>Print</Link>
             <Link className={navClass('/progress')} href="/progress" prefetch={false}>Progress</Link>
             <Link
