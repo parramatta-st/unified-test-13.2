@@ -37,6 +37,51 @@ export function relaySecretValid(req: NextApiRequest) {
   return !!configured && secureEqual(configured, supplied);
 }
 
+// Keep the route prefix compact so the complete local-part remains comfortably
+// below the RFC email-address limit. Future centres only need a stable campusKey.
+export function relayRouteKey(value: any) {
+  return lower(value).replace(/[^a-z0-9]+/g, '').slice(0, 20);
+}
+
+// New relay tokens use: <campus-route>-<32 lowercase hex chars>.
+// The existing Workspace routing regex already accepts this shape.
+export function relayRouteKeyFromToken(relayToken: string) {
+  const token = lower(relayToken);
+  const match = token.match(/^([a-z0-9]{1,20})-([a-f0-9]{32})$/);
+  return match ? match[1] : '';
+}
+
+type RelayHubRoutes = Record<string, string>;
+
+export function relayHubRoutes(): RelayHubRoutes {
+  const raw = norm(process.env.REPLY_RELAY_HUB_ROUTES);
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const out: RelayHubRoutes = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      const route = relayRouteKey(key);
+      const url = norm(value).replace(/\/+$/, '');
+      if (!route || !/^https:\/\//i.test(url)) continue;
+      out[route] = url;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function relayHubMode() {
+  return Object.keys(relayHubRoutes()).length > 0;
+}
+
+export function relayHubTargetForToken(relayToken: string) {
+  const route = relayRouteKeyFromToken(relayToken);
+  if (!route) return '';
+  return relayHubRoutes()[route] || '';
+}
+
 export async function findRelayConversation(relayToken: string) {
   const token = norm(relayToken);
   if (!token) return null;
