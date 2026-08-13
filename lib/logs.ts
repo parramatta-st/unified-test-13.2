@@ -70,7 +70,7 @@ export async function loadPrintLogRows() {
     csvUrls: [
       process.env.PRINT_LOG_CSV_URL || '',
       process.env.PRINT_PROGRESS_CSV_URL || '',
-      process.env.NEXT_PUBLIC_PRINT_PROGRESS_CSV_URL || '',
+      process.env.NEXT_PUBLIC_PRINT_LOG_CSV_URL || '',
       process.env.PRINT_LOG_READ_CSV_URL || '',
     ],
   });
@@ -130,5 +130,4 @@ export function buildPrintLogRow(body: any) {
 export async function appendPrintLog(payload: any) {
   if (!privateSheetsConfigured()) return { saved: false, reason: 'private sheets not configured' };
   await appendSheetRows(sheetNames.printLog(), PRINT_LOG_HEADERS, [buildPrintLogRow(payload)], spreadsheetIdFor('PRINT_LOG'));
-  return { saved: true };
 }
