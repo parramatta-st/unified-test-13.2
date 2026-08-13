@@ -1,5 +1,14 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { findRelayConversation, latestParentReplyForConversation, norm, readValue, relaySecretConfigured, relaySecretValid } from '../../lib/replyRelay';
+import {
+  findRelayConversation,
+  latestParentReplyForConversation,
+  norm,
+  readValue,
+  relayHubMode,
+  relayHubTargetForToken,
+  relaySecretConfigured,
+  relaySecretValid,
+} from '../../lib/replyRelay';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
@@ -17,6 +26,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const relayToken = norm(req.query.token);
   if (!relayToken) return res.status(400).json({ ok: false, error: 'Missing relay token.' });
+
+  // The dedicated relay project is intentionally stateless. It reads the
+  // campus prefix from the token and proxies to that campus deployment, where
+  // the original feedback log and conversation data already live.
+  if (relayHubMode()) {
+    const target = relayHubTargetForToken(relayToken);
+    if (!target) {
+      return res.status(404).json({ ok: false, error: 'No relay hub route is configured for this conversation.' });
+    }
+    try {
+      const upstream = await fetch(`${target}/api/reply-relay-lookup?token=${encodeURIComponent(relayToken)}`, {
+        method: 'GET',
+        headers: { 'x-st-relay-secret': norm(req.headers['x-st-relay-secret']) },
+        cache: 'no-store',
+      });
+      const text = await upstream.text();
+      res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json; charset=utf-8');
+      return res.status(upstream.status).send(text);
+    } catch (error: any) {
+      console.error('reply-relay hub lookup proxy error', error);
+      return res.status(502).json({ ok: false, error: error?.message || 'Relay hub could not reach the centre.' });
+    }
+  }
 
   try {
     const conversation = await findRelayConversation(relayToken);
