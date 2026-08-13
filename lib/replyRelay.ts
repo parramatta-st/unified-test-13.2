@@ -76,10 +76,36 @@ export function relayHubMode() {
   return Object.keys(relayHubRoutes()).length > 0;
 }
 
+export function relayHubTargetForRoute(routeKey: string) {
+  const route = relayRouteKey(routeKey);
+  if (!route) return '';
+  return relayHubRoutes()[route] || '';
+}
+
 export function relayHubTargetForToken(relayToken: string) {
   const route = relayRouteKeyFromToken(relayToken);
   if (!route) return '';
-  return relayHubRoutes()[route] || '';
+  return relayHubTargetForRoute(route);
+}
+
+function buildConversation(row: any, relayToken: string) {
+  const token = norm(relayToken);
+  const conversationId = readValue(row, 'conversationId', 'Conversation ID');
+  if (!token || !conversationId) return null;
+  return {
+    row,
+    conversationId,
+    relayToken: token,
+    campusKey: readValue(row, 'campusKey', 'Campus Key', 'campus', 'Campus'),
+    campusName: readValue(row, 'campusName', 'Campus Name'),
+    parentName: readValue(row, 'parentName', 'Parent Name'),
+    parentEmail: readValue(row, 'parentEmail', 'Parent Email'),
+    centreInbox: readValue(row, 'centreInbox', 'Centre Inbox', 'REPLY_TO', 'Reply To'),
+    fromName: readValue(row, 'fromName', 'From Name'),
+    fromAddress: readValue(row, 'fromAddress', 'From Address'),
+    subjectLine: readValue(row, 'subjectLine', 'Subject Line'),
+    messageId: readValue(row, 'messageId', 'Message ID'),
+  };
 }
 
 export async function findRelayConversation(relayToken: string) {
@@ -92,24 +118,57 @@ export async function findRelayConversation(relayToken: string) {
     const row: any = rows[index];
     if (readValue(row, 'relayToken', 'Relay Token') !== token) continue;
     if (lower(readValue(row, 'sendStatus', 'Send Status')) === 'failed') continue;
-    const conversationId = readValue(row, 'conversationId', 'Conversation ID');
-    if (!conversationId) continue;
-    return {
-      row,
-      conversationId,
-      relayToken: token,
-      campusKey: readValue(row, 'campusKey', 'Campus Key', 'campus', 'Campus'),
-      campusName: readValue(row, 'campusName', 'Campus Name'),
-      parentName: readValue(row, 'parentName', 'Parent Name'),
-      parentEmail: readValue(row, 'parentEmail', 'Parent Email'),
-      centreInbox: readValue(row, 'centreInbox', 'Centre Inbox', 'REPLY_TO', 'Reply To'),
-      fromName: readValue(row, 'fromName', 'From Name'),
-      fromAddress: readValue(row, 'fromAddress', 'From Address'),
-      subjectLine: readValue(row, 'subjectLine', 'Subject Line'),
-      messageId: readValue(row, 'messageId', 'Message ID'),
-    };
+    const conversation = buildConversation(row, token);
+    if (conversation) return conversation;
   }
   return null;
+}
+
+function normaliseReplySubject(value: any) {
+  let subject = lower(value)
+    .replace(/\[st-relay:[^\]]+\]\s*/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  let previous = '';
+  while (subject && subject !== previous) {
+    previous = subject;
+    subject = subject.replace(/^(?:re|fw|fwd)\s*:\s*/i, '').trim();
+  }
+  return subject;
+}
+
+// Fallback for mail systems that ignore Reply-To and send a centre response to
+// the visible @st-feedback.site alias instead of reply+<token>@st-feedback.site.
+// We only accept an exact centre-inbox + normalised-subject match, and only when
+// it identifies one unique relay conversation. Ambiguous matches are rejected.
+export async function findRelayConversationByCentreReply(sender: string, subject: string) {
+  const senderEmail = lower(sender);
+  const subjectKey = normaliseReplySubject(subject);
+  if (!senderEmail || !subjectKey) return { conversation: null as any, ambiguous: false };
+
+  const loaded = await loadFeedbackLogRows();
+  const rows = loaded.rows || [];
+  const matches: any[] = [];
+  const seen = new Set<string>();
+
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row: any = rows[index];
+    if (lower(readValue(row, 'sendStatus', 'Send Status')) === 'failed') continue;
+    const relayToken = readValue(row, 'relayToken', 'Relay Token');
+    if (!relayToken) continue;
+    const centreInbox = lower(readValue(row, 'centreInbox', 'Centre Inbox', 'REPLY_TO', 'Reply To'));
+    if (!centreInbox || centreInbox !== senderEmail) continue;
+    if (normaliseReplySubject(readValue(row, 'subjectLine', 'Subject Line')) !== subjectKey) continue;
+
+    const conversation = buildConversation(row, relayToken);
+    if (!conversation || seen.has(conversation.conversationId)) continue;
+    seen.add(conversation.conversationId);
+    matches.push(conversation);
+    if (matches.length > 1) break;
+  }
+
+  if (matches.length !== 1) return { conversation: null as any, ambiguous: matches.length > 1 };
+  return { conversation: matches[0], ambiguous: false };
 }
 
 export async function relayMessagesForConversation(conversationId: string) {
