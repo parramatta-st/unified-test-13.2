@@ -30,12 +30,27 @@ function runReplyRelay() {
     const messageId = message.getId();
     if (processed.has(messageId)) return;
 
-    const relayToken = relayTokenFromRecipients_(message, cfg.relayDomain);
-    if (!relayToken) return;
+    const sender = extractAddress_(message.getFrom());
+    let relayToken = relayTokenFromMessage_(message, cfg.relayDomain);
+    let conversation = null;
 
     try {
-      const conversation = lookupConversation_(cfg, relayToken);
-      const sender = extractAddress_(message.getFrom());
+      if (relayToken) {
+        conversation = lookupConversation_(cfg, relayToken);
+      } else {
+        // Some centre mail systems ignore Reply-To and respond to the visible
+        // centre alias instead. Only attempt a fallback for approved-looking
+        // Success Tutoring senders, then require an exact unique centre inbox +
+        // subject match on the centre deployment before relaying anything.
+        if (!isPotentialCentreSender_(sender)) return;
+        const route = relayRouteFromMessage_(message, cfg.relayDomain) || relayRouteFromSender_(sender);
+        if (!route) return;
+        conversation = lookupCentreConversationFallback_(cfg, route, sender, message.getSubject());
+        relayToken = String(conversation.relayToken || '');
+        if (!relayToken) throw new Error('Fallback relay lookup did not return a relay token.');
+        console.log(`Recovered centre reply without reply+ recipient using route ${route}.`);
+      }
+
       const centreInbox = String(conversation.centreInbox || '').toLowerCase();
       const fromAlias = String(conversation.fromAddress || '').toLowerCase();
 
@@ -72,7 +87,8 @@ function handleParentReply_(cfg, relayToken, conversation, message) {
   const relayAddress = `reply+${relayToken}@${cfg.relayDomain}`;
   const body = cleanIncomingBody_(message.getPlainBody());
   const thread = message.getThread();
-  const attachmentNames = message.getAttachments({ includeInlineImages: false, includeAttachments: true }).map((file) => file.getName());
+  const attachments = message.getAttachments({ includeInlineImages: false, includeAttachments: true });
+  const attachmentNames = attachments.map((file) => file.getName());
 
   postRelayEvent_(cfg, {
     eventType: 'parent_reply',
@@ -95,13 +111,17 @@ function handleParentReply_(cfg, relayToken, conversation, message) {
     timestamp: message.getDate().toISOString(),
   });
 
-  // Forward a copy to the centre's normal Success Tutoring inbox. Staff can
-  // simply hit Reply there; Reply-To points back to the unique relay address.
-  message.forward(conversation.centreInbox, {
-    from: conversation.fromAddress,
-    name: conversation.fromName || conversation.campusName || 'Success Tutoring',
-    replyTo: relayAddress,
-  });
+  // Send the centre a clean notification rather than a raw forward. Reply-To
+  // still points at the unique relay address, and the subject also carries the
+  // token as a fallback for mail systems that ignore Reply-To.
+  const centreSubject = centreRelaySubject_(message.getSubject(), relayToken);
+  const centreBody = centreRelayBody_(conversation, message, body);
+  GmailApp.sendEmail(
+    conversation.centreInbox,
+    centreSubject,
+    centreBody,
+    gmailSendOptions_(conversation.fromAddress, conversation.fromName || conversation.campusName || 'Success Tutoring', relayAddress, attachments),
+  );
 }
 
 function handleCentreReply_(cfg, relayToken, conversation, message) {
@@ -122,12 +142,10 @@ function handleCentreReply_(cfg, relayToken, conversation, message) {
   if (!body) throw new Error('The centre reply did not contain any new message text.');
 
   const attachments = message.getAttachments({ includeInlineImages: false, includeAttachments: true });
-  thread.reply(body, {
-    from: conversation.fromAddress,
-    name: conversation.fromName || conversation.campusName || 'Success Tutoring',
-    replyTo: relayAddress,
-    attachments,
-  });
+  thread.reply(
+    body,
+    gmailSendOptions_(conversation.fromAddress, conversation.fromName || conversation.campusName || 'Success Tutoring', relayAddress, attachments),
+  );
 
   // Read back the message Gmail just added to the original parent thread so
   // the portal can store the actual Gmail message id.
@@ -158,6 +176,50 @@ function handleCentreReply_(cfg, relayToken, conversation, message) {
   });
 }
 
+function gmailSendOptions_(fromAddress, fromName, replyTo, attachments) {
+  const options = {
+    name: fromName || 'Success Tutoring',
+    replyTo,
+    attachments: attachments || [],
+  };
+  const from = String(fromAddress || '').toLowerCase();
+  if (!from) return options;
+
+  const primary = String(Session.getActiveUser().getEmail() || '').toLowerCase();
+  if (from === primary) return options;
+
+  const aliases = GmailApp.getAliases().map((address) => String(address || '').toLowerCase());
+  if (!aliases.includes(from)) {
+    throw new Error(`Configured sender ${from} is not available as a Gmail alias.`);
+  }
+  options.from = fromAddress;
+  return options;
+}
+
+function centreRelaySubject_(subject, relayToken) {
+  const tag = `[ST-RELAY:${relayToken}]`;
+  const clean = String(subject || 'Parent feedback reply')
+    .replace(/\[ST-RELAY:[^\]]+\]\s*/ig, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return `${tag} ${clean}`.slice(0, 250);
+}
+
+function centreRelayBody_(conversation, message, body) {
+  const parentName = displayNameFromHeader_(message.getFrom()) || conversation.parentName || conversation.parentEmail || 'Parent';
+  const subject = conversation.subjectLine || message.getSubject() || 'Feedback email';
+  return [
+    `${parentName} replied to the feedback email.`,
+    '',
+    body || '(No new message text was detected.)',
+    '',
+    '---',
+    `Original subject: ${subject}`,
+    '',
+    'Reply normally to this email. Your response will be sent back to the parent from the centre feedback address and recorded in Sent Feedback.',
+  ].join('\n');
+}
+
 function lookupConversation_(cfg, relayToken) {
   const url = `${cfg.baseUrl}/api/reply-relay-lookup?token=${encodeURIComponent(relayToken)}`;
   const response = UrlFetchApp.fetch(url, {
@@ -170,6 +232,26 @@ function lookupConversation_(cfg, relayToken) {
   try { json = JSON.parse(text || '{}'); } catch (_) {}
   if (response.getResponseCode() !== 200 || !json.ok) {
     throw new Error(`Relay lookup failed (${response.getResponseCode()}): ${json.error || text}`);
+  }
+  return json;
+}
+
+function lookupCentreConversationFallback_(cfg, route, sender, subject) {
+  const params = [
+    `route=${encodeURIComponent(route)}`,
+    `sender=${encodeURIComponent(sender)}`,
+    `subject=${encodeURIComponent(subject || '')}`,
+  ].join('&');
+  const response = UrlFetchApp.fetch(`${cfg.baseUrl}/api/reply-relay-lookup?${params}`, {
+    method: 'get',
+    muteHttpExceptions: true,
+    headers: { 'x-st-relay-secret': cfg.secret },
+  });
+  const text = response.getContentText();
+  let json = {};
+  try { json = JSON.parse(text || '{}'); } catch (_) {}
+  if (response.getResponseCode() !== 200 || !json.ok) {
+    throw new Error(`Fallback relay lookup failed (${response.getResponseCode()}): ${json.error || text}`);
   }
   return json;
 }
@@ -191,11 +273,42 @@ function postRelayEvent_(cfg, payload) {
   return json;
 }
 
+function relayTokenFromMessage_(message, relayDomain) {
+  return relayTokenFromRecipients_(message, relayDomain) || relayTokenFromSubject_(message.getSubject());
+}
+
 function relayTokenFromRecipients_(message, relayDomain) {
   const recipients = `${message.getTo() || ''},${message.getCc() || ''}`;
   const escaped = relayDomain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = recipients.match(new RegExp(`reply\\+([A-Za-z0-9_-]+)@${escaped}`, 'i'));
   return match ? match[1] : '';
+}
+
+function relayTokenFromSubject_(subject) {
+  const match = String(subject || '').match(/\[ST-RELAY:([A-Za-z0-9_-]+)\]/i);
+  return match ? match[1] : '';
+}
+
+function relayRouteFromMessage_(message, relayDomain) {
+  const recipients = `${message.getTo() || ''},${message.getCc() || ''}`;
+  const escaped = relayDomain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`([A-Z0-9._%+\\-]+)@${escaped}`, 'ig');
+  let match;
+  while ((match = regex.exec(recipients))) {
+    const local = String(match[1] || '').toLowerCase();
+    if (!local || local.startsWith('reply+')) continue;
+    return local.replace(/[^a-z0-9]+/g, '').slice(0, 20);
+  }
+  return '';
+}
+
+function relayRouteFromSender_(sender) {
+  const local = String(sender || '').toLowerCase().split('@')[0] || '';
+  return local.replace(/[^a-z0-9]+/g, '').slice(0, 20);
+}
+
+function isPotentialCentreSender_(sender) {
+  return /@successtutoring\.com(?:\.au)?$/i.test(String(sender || '').trim());
 }
 
 function extractAddress_(header) {
@@ -218,7 +331,7 @@ function cleanIncomingBody_(rawBody) {
   if (!body) return '';
 
   const splitPatterns = [
-    /\nOn .+ wrote:\s*\n/i,
+    /\nOn [^\n]+wrote:\s*(?:\n|$)/i,
     /\n-{2,}\s*Original Message\s*-{2,}\s*\n/i,
     /\nFrom:\s*.+\nSent:\s*.+\nTo:\s*.+\nSubject:\s*.+\n/i,
     /\n_{5,}\s*\n/,
