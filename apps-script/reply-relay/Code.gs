@@ -111,16 +111,18 @@ function handleParentReply_(cfg, relayToken, conversation, message) {
     timestamp: message.getDate().toISOString(),
   });
 
-  // Send the centre a clean notification rather than a raw forward. Reply-To
-  // still points at the unique relay address, and the subject also carries the
-  // token as a fallback for mail systems that ignore Reply-To.
-  const centreSubject = centreRelaySubject_(message.getSubject(), relayToken);
-  const centreBody = centreRelayBody_(conversation, message, body);
+  // Keep all relay mechanics invisible to centre staff. Reply-To still points
+  // at the unique relay address, while ScannerV2's strict centre+subject
+  // fallback covers mail clients that ignore Reply-To. The visible email can
+  // therefore look like a normal Gmail reply with no routing token or wrapper.
+  const centreSubject = centreRelaySubject_(message.getSubject());
+  const centreBody = centreRelayBody_(body);
+  const centreDisplayName = centreRelayDisplayName_(conversation, message);
   GmailApp.sendEmail(
     conversation.centreInbox,
     centreSubject,
     centreBody,
-    gmailSendOptions_(conversation.fromAddress, conversation.fromName || conversation.campusName || 'Success Tutoring', relayAddress, attachments),
+    gmailSendOptions_(conversation.fromAddress, centreDisplayName, relayAddress, attachments),
   );
 }
 
@@ -196,28 +198,31 @@ function gmailSendOptions_(fromAddress, fromName, replyTo, attachments) {
   return options;
 }
 
-function centreRelaySubject_(subject, relayToken) {
-  const tag = `[ST-RELAY:${relayToken}]`;
-  const clean = String(subject || 'Parent feedback reply')
+function centreRelaySubject_(subject) {
+  let clean = String(subject || 'Feedback reply')
     .replace(/\[ST-RELAY:[^\]]+\]\s*/ig, '')
     .replace(/\s+/g, ' ')
     .trim();
-  return `${tag} ${clean}`.slice(0, 250);
+
+  // Keep the centre notification looking like one ordinary reply rather than
+  // accumulating "Re: Re: Re:" as messages move through different systems.
+  let previous = '';
+  while (clean && clean !== previous) {
+    previous = clean;
+    clean = clean.replace(/^(?:re|fw|fwd)\s*:\s*/i, '').trim();
+  }
+  return `Re: ${clean || 'Feedback reply'}`.slice(0, 250);
 }
 
-function centreRelayBody_(conversation, message, body) {
+function centreRelayDisplayName_(conversation, message) {
   const parentName = displayNameFromHeader_(message.getFrom()) || conversation.parentName || conversation.parentEmail || 'Parent';
-  const subject = conversation.subjectLine || message.getSubject() || 'Feedback email';
-  return [
-    `${parentName} replied to the feedback email.`,
-    '',
-    body || '(No new message text was detected.)',
-    '',
-    '---',
-    `Original subject: ${subject}`,
-    '',
-    'Reply normally to this email. Your response will be sent back to the parent from the centre feedback address and recorded in Sent Feedback.',
-  ].join('\n');
+  const centreName = conversation.fromName || conversation.campusName || 'Success Tutoring';
+  return `${parentName} via ${centreName}`.slice(0, 100);
+}
+
+function centreRelayBody_(body) {
+  const clean = String(body || '').trim();
+  return clean || '(No message text was detected.)';
 }
 
 function lookupConversation_(cfg, relayToken) {
