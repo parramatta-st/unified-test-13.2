@@ -2,9 +2,27 @@ import { useEffect, useMemo, useState } from 'react';
 import Header from '../components/Header';
 import useAuthGuard from '../hooks/useAuthGuard';
 
+type SentFeedbackReply = {
+  timestamp: string;
+  eventType: string;
+  direction: string;
+  actorRole: string;
+  actorName: string;
+  fromAddress: string;
+  toAddress: string;
+  subjectLine: string;
+  messageText: string;
+  gmailMessageId: string;
+  gmailThreadId: string;
+  sourceMessageId: string;
+  sendStatus: string;
+  attachmentNames: string[];
+};
+
 type SentFeedbackItem = {
   id: string;
   timestamp: string;
+  conversationId?: string;
   campusKey: string;
   campusName: string;
   tutorName: string;
@@ -16,6 +34,8 @@ type SentFeedbackItem = {
   fromName: string;
   fromAddress: string;
   replyTo: string;
+  centreInbox?: string;
+  relayEnabled?: boolean;
   subjectLine: string;
   messageText: string;
   sendStatus: 'sent' | 'failed' | string;
@@ -32,6 +52,9 @@ type SentFeedbackItem = {
   lesson: string;
   topic: string;
   sourceForm: string;
+  replies?: SentFeedbackReply[];
+  replyCount?: number;
+  latestReplyAt?: string;
 };
 
 type SentFeedbackResponse = {
@@ -45,6 +68,7 @@ type SentFeedbackResponse = {
 };
 
 function norm(value: any) { return String(value ?? '').trim(); }
+function lower(value: any) { return norm(value).toLowerCase(); }
 
 function formatSentAt(value: string) {
   const parsed = Date.parse(norm(value));
@@ -83,6 +107,40 @@ function activitySummary(item: SentFeedbackItem) {
 function senderLabel(item: SentFeedbackItem) {
   if (item.fromName && item.fromAddress) return `${item.fromName} <${item.fromAddress}>`;
   return item.fromAddress || item.fromName || item.campusName || 'Success Tutoring';
+}
+
+function repliesFor(item: SentFeedbackItem) {
+  return Array.isArray(item.replies) ? item.replies : [];
+}
+
+function replyCountFor(item: SentFeedbackItem) {
+  return Number.isFinite(Number(item.replyCount)) ? Number(item.replyCount) : repliesFor(item).length;
+}
+
+function latestReply(item: SentFeedbackItem) {
+  const replies = repliesFor(item);
+  return replies.length ? replies[replies.length - 1] : null;
+}
+
+function activityTimestamp(item: SentFeedbackItem) {
+  return item.latestReplyAt || latestReply(item)?.timestamp || item.timestamp;
+}
+
+function isParentReply(reply: SentFeedbackReply) {
+  return lower(reply.eventType) === 'parent_reply' || lower(reply.actorRole) === 'parent';
+}
+
+function replyActorLabel(reply: SentFeedbackReply, item: SentFeedbackItem) {
+  if (isParentReply(reply)) return reply.actorName || item.parentName || 'Parent';
+  return reply.actorName || item.fromName || item.campusName || 'Success Tutoring';
+}
+
+function replyRoleLabel(reply: SentFeedbackReply) {
+  return isParentReply(reply) ? 'Parent reply' : 'Centre reply';
+}
+
+function previewText(item: SentFeedbackItem) {
+  return latestReply(item)?.messageText || item.messageText || '';
 }
 
 export default function SentFeedbackPage() {
@@ -133,6 +191,13 @@ export default function SentFeedbackPage() {
     return items.filter((item) => {
       if (status !== 'all' && item.sendStatus !== status) return false;
       if (!needle) return true;
+      const replySearch = repliesFor(item).flatMap((reply) => [
+        reply.actorName,
+        reply.fromAddress,
+        reply.toAddress,
+        reply.subjectLine,
+        reply.messageText,
+      ]);
       const haystack = [
         item.studentName,
         item.studentYear,
@@ -146,6 +211,7 @@ export default function SentFeedbackPage() {
         item.strand,
         item.lesson,
         item.assessmentName,
+        ...replySearch,
       ].join(' ').toLowerCase();
       return haystack.includes(needle);
     });
@@ -156,6 +222,7 @@ export default function SentFeedbackPage() {
   }, [filtered, selectedId]);
 
   const archivedBodyCount = useMemo(() => items.filter((item) => !!item.messageText).length, [items]);
+  const capturedReplyCount = useMemo(() => items.reduce((sum, item) => sum + replyCountFor(item), 0), [items]);
   const failedCount = useMemo(() => items.filter((item) => item.sendStatus === 'failed').length, [items]);
 
   return (
@@ -167,7 +234,7 @@ export default function SentFeedbackPage() {
             <div className="eyebrow">Centre email archive</div>
             <h1 className="section-title sent-title">Sent Feedback</h1>
             <p className="text-muted sent-lead">
-              Review feedback emails sent from this centre, including the recipient, sender alias, reply-to address and the exact message text stored at send time.
+              Review sent feedback and the replies captured for each conversation. Parent and centre replies appear under the original email as they are relayed.
             </p>
           </div>
           <button type="button" className="btn" onClick={() => setRefreshKey((value) => value + 1)} disabled={loading}>
@@ -178,6 +245,7 @@ export default function SentFeedbackPage() {
         <section className="sent-stats mt-4">
           <div className="card sent-stat"><span>Logged emails</span><strong>{total}</strong></div>
           <div className="card sent-stat"><span>Full message archived</span><strong>{archivedBodyCount}</strong></div>
+          <div className="card sent-stat"><span>Replies captured</span><strong>{capturedReplyCount}</strong></div>
           <div className="card sent-stat"><span>Failed sends</span><strong>{failedCount}</strong></div>
         </section>
 
@@ -189,7 +257,7 @@ export default function SentFeedbackPage() {
               className="input"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search student, parent, tutor, subject or feedback text…"
+              placeholder="Search student, parent, tutor, subject, feedback or reply text…"
             />
           </div>
           <div>
@@ -211,7 +279,7 @@ export default function SentFeedbackPage() {
               <div className="sent-panel-heading">
                 <div>
                   <strong>{filtered.length} email{filtered.length === 1 ? '' : 's'}</strong>
-                  <div className="text-sm text-muted">Newest first</div>
+                  <div className="text-sm text-muted">Newest activity first</div>
                 </div>
               </div>
 
@@ -221,6 +289,9 @@ export default function SentFeedbackPage() {
                 <div className="sent-list">
                   {filtered.map((item) => {
                     const active = selected?.id === item.id;
+                    const count = replyCountFor(item);
+                    const recentReply = latestReply(item);
+                    const preview = previewText(item);
                     return (
                       <button
                         key={item.id}
@@ -230,14 +301,17 @@ export default function SentFeedbackPage() {
                       >
                         <div className="sent-row-top">
                           <strong>{item.studentName || 'Unknown student'}</strong>
-                          <span className={`sent-status ${item.sendStatus === 'failed' ? 'failed' : 'sent'}`}>{item.sendStatus === 'failed' ? 'Failed' : 'Sent'}</span>
+                          <div className="sent-row-badges">
+                            {count > 0 && <span className="sent-reply-count">{count} repl{count === 1 ? 'y' : 'ies'}</span>}
+                            <span className={`sent-status ${item.sendStatus === 'failed' ? 'failed' : 'sent'}`}>{item.sendStatus === 'failed' ? 'Failed' : 'Sent'}</span>
+                          </div>
                         </div>
                         <div className="sent-row-subject">{subjectSummary(item)}</div>
                         <div className="sent-row-meta">
-                          <span>{item.tutorName || 'Tutor not recorded'}</span>
-                          <span>{shortSentAt(item.timestamp)}</span>
+                          <span>{recentReply ? `${replyRoleLabel(recentReply)} • ${replyActorLabel(recentReply, item)}` : (item.tutorName || 'Tutor not recorded')}</span>
+                          <span>{shortSentAt(activityTimestamp(item))}</span>
                         </div>
-                        {item.messageText && <div className="sent-row-preview">{item.messageText.replace(/\s+/g, ' ').slice(0, 150)}</div>}
+                        {preview && <div className="sent-row-preview">{preview.replace(/\s+/g, ' ').slice(0, 150)}</div>}
                       </button>
                     );
                   })}
@@ -252,11 +326,17 @@ export default function SentFeedbackPage() {
                 <>
                   <div className="sent-detail-head">
                     <div>
-                      <div className="sent-detail-kicker">{selected.sendStatus === 'failed' ? 'Send failed' : 'Sent successfully'} • {formatSentAt(selected.timestamp)}</div>
+                      <div className="sent-detail-kicker">
+                        {selected.sendStatus === 'failed' ? 'Send failed' : 'Sent successfully'} • {formatSentAt(selected.timestamp)}
+                        {selected.latestReplyAt ? ` • Last reply ${formatSentAt(selected.latestReplyAt)}` : ''}
+                      </div>
                       <h2>{selected.studentName || 'Feedback email'}</h2>
                       {activitySummary(selected) && <div className="text-muted">{activitySummary(selected)}</div>}
                     </div>
-                    <span className={`sent-status large ${selected.sendStatus === 'failed' ? 'failed' : 'sent'}`}>{selected.sendStatus === 'failed' ? 'Failed' : 'Sent'}</span>
+                    <div className="sent-detail-badges">
+                      {replyCountFor(selected) > 0 && <span className="sent-reply-count large">{replyCountFor(selected)} repl{replyCountFor(selected) === 1 ? 'y' : 'ies'}</span>}
+                      <span className={`sent-status large ${selected.sendStatus === 'failed' ? 'failed' : 'sent'}`}>{selected.sendStatus === 'failed' ? 'Failed' : 'Sent'}</span>
+                    </div>
                   </div>
 
                   <div className="sent-envelope mt-4">
@@ -267,14 +347,61 @@ export default function SentFeedbackPage() {
                     <div className="wide"><span>Subject</span><strong>{subjectSummary(selected)}</strong></div>
                   </div>
 
-                  <div className="sent-message mt-4">
-                    <div className="sent-message-label">Email body</div>
-                    {selected.messageText ? (
-                      <pre>{selected.messageText}</pre>
-                    ) : (
-                      <div className="sent-legacy-note">
-                        Full message text was not stored for this older feedback record. New emails sent after the Sent Feedback upgrade will appear here in full.
+                  <div className="conversation mt-4">
+                    <div className="conversation-heading">
+                      <div>
+                        <span>Conversation</span>
+                        <strong>Original feedback and captured replies</strong>
                       </div>
+                      <div className="conversation-count">{replyCountFor(selected)} captured repl{replyCountFor(selected) === 1 ? 'y' : 'ies'}</div>
+                    </div>
+
+                    <div className="conversation-entry centre original">
+                      <div className="conversation-entry-head">
+                        <div>
+                          <strong>{selected.fromName || selected.campusName || 'Success Tutoring'}</strong>
+                          <span>Original feedback • {formatSentAt(selected.timestamp)}</span>
+                        </div>
+                        <span className="conversation-role centre">Centre</span>
+                      </div>
+                      <div className="conversation-route">{selected.fromAddress || 'Centre'} → {selected.parentEmail || 'Parent'}</div>
+                      {selected.messageText ? (
+                        <pre>{selected.messageText}</pre>
+                      ) : (
+                        <div className="sent-legacy-note">
+                          Full message text was not stored for this older feedback record. New emails sent after the Sent Feedback upgrade appear here in full.
+                        </div>
+                      )}
+                    </div>
+
+                    {repliesFor(selected).map((reply, index) => {
+                      const parent = isParentReply(reply);
+                      return (
+                        <div className={`conversation-entry ${parent ? 'parent' : 'centre'}`} key={`${reply.gmailMessageId || reply.sourceMessageId || reply.timestamp}-${index}`}>
+                          <div className="conversation-entry-head">
+                            <div>
+                              <strong>{replyActorLabel(reply, selected)}</strong>
+                              <span>{replyRoleLabel(reply)} • {formatSentAt(reply.timestamp)}</span>
+                            </div>
+                            <span className={`conversation-role ${parent ? 'parent' : 'centre'}`}>{parent ? 'Parent' : 'Centre'}</span>
+                          </div>
+                          {(reply.fromAddress || reply.toAddress) && (
+                            <div className="conversation-route">
+                              {reply.fromAddress || (parent ? selected.parentEmail : selected.fromAddress) || 'Unknown sender'} → {reply.toAddress || (parent ? selected.centreInbox : selected.parentEmail) || 'Unknown recipient'}
+                            </div>
+                          )}
+                          {reply.messageText ? <pre>{reply.messageText}</pre> : <div className="sent-legacy-note">No message text was stored for this reply.</div>}
+                          {Array.isArray(reply.attachmentNames) && reply.attachmentNames.length > 0 && (
+                            <div className="conversation-attachments">
+                              {reply.attachmentNames.map((name, attachmentIndex) => <span key={`${name}-${attachmentIndex}`}>{name}</span>)}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {replyCountFor(selected) === 0 && selected.relayEnabled && (
+                      <div className="conversation-waiting">No replies captured yet. Parent replies will appear here after the relay processes them.</div>
                     )}
                   </div>
 
@@ -311,7 +438,7 @@ export default function SentFeedbackPage() {
         .sent-hero-copy { max-width: 760px; }
         .sent-title { margin-bottom: .45rem; }
         .sent-lead { margin: 0; line-height: 1.55; }
-        .sent-stats { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 1rem; }
+        .sent-stats { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 1rem; }
         .sent-stat { display: flex; flex-direction: column; gap: .25rem; }
         .sent-stat span { color: var(--muted); font-size: .85rem; }
         .sent-stat strong { font-size: 1.7rem; }
@@ -342,10 +469,11 @@ export default function SentFeedbackPage() {
         .sent-row:hover { background: rgba(255,255,255,.035); }
         .sent-row.active { background: rgba(249,115,22,.09); box-shadow: inset 3px 0 0 var(--accent); }
         .sent-row-top { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+        .sent-row-badges, .sent-detail-badges { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; justify-content: flex-end; }
         .sent-row-subject { margin-top: .25rem; color: var(--text-dim); font-size: .92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .sent-row-meta { margin-top: .35rem; color: var(--muted); font-size: .8rem; display: flex; justify-content: space-between; gap: .75rem; }
         .sent-row-preview { margin-top: .45rem; color: var(--muted); font-size: .82rem; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-        .sent-status {
+        .sent-status, .sent-reply-count {
           display: inline-flex;
           align-items: center;
           border-radius: 999px;
@@ -358,7 +486,8 @@ export default function SentFeedbackPage() {
         }
         .sent-status.sent { color: #bbf7d0; background: rgba(22,101,52,.28); border-color: rgba(34,197,94,.3); }
         .sent-status.failed { color: #fecaca; background: rgba(127,29,29,.35); border-color: rgba(248,113,113,.32); }
-        .sent-status.large { padding: .35rem .7rem; font-size: .78rem; }
+        .sent-reply-count { color: #bae6fd; background: rgba(3,105,161,.2); border-color: rgba(56,189,248,.28); }
+        .sent-status.large, .sent-reply-count.large { padding: .35rem .7rem; font-size: .78rem; }
         .sent-detail-panel { padding: 1.15rem; min-height: 420px; }
         .sent-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
         .sent-detail-head h2 { margin: .2rem 0 .25rem; font-size: 1.55rem; }
@@ -376,18 +505,56 @@ export default function SentFeedbackPage() {
         .sent-envelope .wide { grid-column: 1 / -1; }
         .sent-envelope span, .sent-detail-footer span { color: var(--muted); font-size: .76rem; text-transform: uppercase; letter-spacing: .05em; }
         .sent-envelope strong { font-size: .9rem; overflow-wrap: anywhere; }
-        .sent-message { border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
-        .sent-message-label { padding: .65rem .9rem; font-size: .78rem; font-weight: 800; color: var(--muted); background: #101010; border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: .06em; }
-        .sent-message pre {
-          margin: 0;
-          padding: 1.1rem;
+        .conversation { border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: rgba(0,0,0,.12); }
+        .conversation-heading {
+          padding: .75rem .9rem;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 1rem;
+          background: #101010;
+          border-bottom: 1px solid var(--border);
+        }
+        .conversation-heading > div:first-child { display: flex; flex-direction: column; gap: .1rem; }
+        .conversation-heading span { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; }
+        .conversation-heading strong { font-size: .9rem; }
+        .conversation-count { color: var(--muted); font-size: .78rem; white-space: nowrap; }
+        .conversation-entry { padding: 1rem; border-bottom: 1px solid var(--border); }
+        .conversation-entry:last-child { border-bottom: 0; }
+        .conversation-entry.parent { background: rgba(14,116,144,.055); }
+        .conversation-entry.centre { background: rgba(249,115,22,.035); }
+        .conversation-entry.original { background: rgba(249,115,22,.055); }
+        .conversation-entry-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+        .conversation-entry-head > div { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
+        .conversation-entry-head strong { font-size: .92rem; overflow-wrap: anywhere; }
+        .conversation-entry-head span:not(.conversation-role) { color: var(--muted); font-size: .78rem; }
+        .conversation-role {
+          border-radius: 999px;
+          padding: .18rem .48rem;
+          font-size: .7rem;
+          font-weight: 800;
+          border: 1px solid transparent;
+          flex: 0 0 auto;
+        }
+        .conversation-role.parent { color: #bae6fd; background: rgba(3,105,161,.2); border-color: rgba(56,189,248,.28); }
+        .conversation-role.centre { color: #fed7aa; background: rgba(154,52,18,.22); border-color: rgba(251,146,60,.28); }
+        .conversation-route { margin-top: .55rem; color: var(--muted); font-size: .76rem; overflow-wrap: anywhere; }
+        .conversation-entry pre {
+          margin: .8rem 0 0;
+          padding: .9rem;
           white-space: pre-wrap;
           overflow-wrap: anywhere;
           font: inherit;
+          font-size: .9rem;
           line-height: 1.6;
           color: var(--text);
           background: rgba(0,0,0,.16);
+          border: 1px solid rgba(255,255,255,.055);
+          border-radius: 12px;
         }
+        .conversation-attachments { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .75rem; }
+        .conversation-attachments span { padding: .25rem .5rem; border-radius: 8px; border: 1px solid var(--border); color: var(--text-dim); font-size: .76rem; background: rgba(255,255,255,.025); }
+        .conversation-waiting { padding: 1rem; color: var(--muted); line-height: 1.5; text-align: center; }
         .sent-legacy-note { padding: 1rem; color: var(--muted); line-height: 1.5; }
         .sent-detail-footer { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .8rem; }
         .sent-detail-footer > div { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
@@ -396,6 +563,9 @@ export default function SentFeedbackPage() {
         .sent-empty { padding: 2rem 1rem; color: var(--muted); text-align: center; }
         .sent-empty.detail { min-height: 340px; display: grid; place-items: center; }
         .sent-footnote { text-align: center; }
+        @media (max-width: 1050px) {
+          .sent-stats { grid-template-columns: repeat(2, minmax(0,1fr)); }
+        }
         @media (max-width: 900px) {
           .sent-hero { flex-direction: column; }
           .sent-stats { grid-template-columns: 1fr; }
@@ -404,6 +574,10 @@ export default function SentFeedbackPage() {
           .sent-list { max-height: 420px; }
           .sent-envelope, .sent-detail-footer { grid-template-columns: 1fr; }
           .sent-envelope .wide { grid-column: auto; }
+          .sent-detail-head { flex-direction: column; }
+          .sent-detail-badges { justify-content: flex-start; }
+          .conversation-heading { align-items: flex-start; flex-direction: column; }
+          .conversation-count { white-space: normal; }
         }
       `}</style>
     </div>
