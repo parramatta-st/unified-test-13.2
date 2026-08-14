@@ -104,6 +104,7 @@ function buildConversation(row: any, relayToken: string) {
     fromName: readValue(row, 'fromName', 'From Name'),
     fromAddress: readValue(row, 'fromAddress', 'From Address'),
     subjectLine: readValue(row, 'subjectLine', 'Subject Line'),
+    messageText: readValue(row, 'messageText', 'Message Text', 'emailBody', 'Email Body', 'feedbackText', 'Feedback Text'),
     messageId: readValue(row, 'messageId', 'Message ID'),
   };
 }
