@@ -9,9 +9,9 @@
  * and gain tutor or even admin access without the password.
  *
  * This module issues an HMAC-SHA256 signed token instead. The token embeds
- * the tutor name, campus key, and an expiry. It cannot be forged without the
- * server secret, and API routes / middleware read the tutor + campus FROM the
- * verified token (never from loose cookies).
+ * the tutor name, campus key, role, and an expiry. It cannot be forged without
+ * the server secret, and API routes / middleware read the tutor + campus + role
+ * FROM the verified token (never from loose cookies).
  *
  * It intentionally uses only the Web Crypto API (`crypto.subtle`) so the same
  * code runs in BOTH the Edge middleware runtime and Node.js API routes.
@@ -23,9 +23,12 @@
  * value simply signs everyone out.
  */
 
+export type SessionRole = 'admin' | 'tutor';
+
 export type SessionPayload = {
   tutor: string;
   campus: string;
+  role?: SessionRole;
   exp: number; // ms since epoch
 };
 
@@ -77,8 +80,12 @@ async function importHmacKey(usages: KeyUsage[]) {
   );
 }
 
+function normaliseRole(value: unknown): SessionRole {
+  return String(value || '').trim().toLowerCase() === 'admin' ? 'admin' : 'tutor';
+}
+
 export async function createSessionToken(
-  input: { tutor: string; campus: string },
+  input: { tutor: string; campus: string; role?: SessionRole },
   maxAgeSeconds = SESSION_MAX_AGE_SECONDS,
 ): Promise<string> {
   if (!sessionConfigured()) {
@@ -89,6 +96,7 @@ export async function createSessionToken(
   const payload: SessionPayload = {
     tutor: String(input.tutor || '').trim(),
     campus: String(input.campus || '').trim(),
+    role: normaliseRole(input.role),
     exp: Date.now() + maxAgeSeconds * 1000,
   };
   const encodedPayload = bytesToBase64Url(encoder.encode(JSON.stringify(payload)));
@@ -103,6 +111,10 @@ export async function createSessionToken(
  * Verifies a token and returns its payload, or null when the token is
  * missing, tampered with, malformed, or expired. `crypto.subtle.verify`
  * performs a constant-time signature comparison.
+ *
+ * Older v1 sessions created before roles were embedded remain valid. Their
+ * `role` is left undefined so admin authorization can do a one-time legacy
+ * lookup until the tutor next logs in and receives a role-bearing token.
  */
 export async function verifySessionToken(
   token: string | undefined | null,
@@ -141,7 +153,10 @@ export async function verifySessionToken(
   const tutor = String(parsed?.tutor || '').trim();
   const campus = String(parsed?.campus || '').trim();
   const exp = Number(parsed?.exp || 0);
+  const parsedRole = String(parsed?.role || '').trim().toLowerCase();
+  const role: SessionRole | undefined =
+    parsedRole === 'admin' || parsedRole === 'tutor' ? parsedRole : undefined;
   if (!tutor || !Number.isFinite(exp) || exp <= Date.now()) return null;
 
-  return { tutor, campus, exp };
+  return { tutor, campus, role, exp };
 }
