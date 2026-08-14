@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { appendFeedbackMessage, loadFeedbackMessageRows } from '../../lib/logs';
+import { cleanReplySubject, cleanReplyText } from '../../lib/replyText';
 import {
   findRelayConversation,
   lower,
@@ -40,10 +41,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ ok: false, error: 'Missing relayToken, conversationId, or gmailMessageId.' });
   }
 
-  // In the dedicated hub deployment, forward the event to the centre whose
-  // route prefix is encoded in the relay token. The centre deployment stores
-  // the reply beside its own sent-feedback data, so no cross-centre database is
-  // required and each portal remains scoped to its own records.
   if (relayHubMode()) {
     const target = relayHubTargetForToken(relayToken);
     if (!target) {
@@ -73,8 +70,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(404).json({ ok: false, error: 'Relay conversation not found.' });
     }
 
-    // Gmail/Apps Script can retry. Make webhook ingestion idempotent so a retry
-    // never creates duplicate portal messages.
     const existing = await loadFeedbackMessageRows();
     const duplicate = (existing.rows || []).some((row: any) =>
       readValue(row, 'gmailMessageId', 'Gmail Message ID') === gmailMessageId &&
@@ -100,8 +95,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       actorName: norm(body.actorName),
       fromAddress: norm(body.fromAddress),
       toAddress: norm(body.toAddress),
-      subjectLine: norm(body.subjectLine) || conversation.subjectLine,
-      messageText: String(body.messageText || ''),
+      subjectLine: cleanReplySubject(norm(body.subjectLine) || conversation.subjectLine),
+      messageText: cleanReplyText(body.messageText),
       gmailMessageId,
       gmailThreadId: norm(body.gmailThreadId),
       sourceMessageId: norm(body.sourceMessageId),

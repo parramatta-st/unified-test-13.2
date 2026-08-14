@@ -155,20 +155,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const fromAddress = resolvedFrom.address;
   const fromName = senderDisplayName(campusName, campusKey);
   const centreInbox = headerSafe(process.env.REPLY_TO || '');
-  const relayRequested = enabled(process.env.REPLY_RELAY_ENABLED);
-  if (relayRequested && !norm(process.env.REPLY_RELAY_SECRET)) {
-    return res.status(500).json({ ok: false, error: 'Reply relay is enabled but REPLY_RELAY_SECRET is not configured.' });
-  }
-  const relayEnabled = relayRequested;
-  const conversationId = crypto.randomUUID();
-  const routeKey = relayRouteKey(campusKey) || 'centre';
-  const relayToken = `${routeKey}-${crypto.randomBytes(16).toString('hex')}`;
+  const relaySecret = norm(process.env.REPLY_RELAY_SECRET);
   const relayDomain = lower(process.env.REPLY_RELAY_DOMAIN || emailDomain(fromAddress) || 'st-feedback.site')
     .replace(/^@+/, '')
     .replace(/[^a-z0-9.-]/g, '');
+  const relayFlag = norm(process.env.REPLY_RELAY_ENABLED);
+
+  // The admin Inbox depends on replies entering the shared relay. Historically
+  // REPLY_RELAY_ENABLED had to be set separately on every Vercel project, which
+  // meant a centre could look fully configured while parent replies silently
+  // bypassed the portal. When the shared Workspace sender, relay secret and
+  // centre inbox are present, relay mode is now the safe default. An explicit
+  // REPLY_RELAY_ENABLED=false still acts as an emergency opt-out.
+  const relayAutoConfigured = !!(
+    relaySecret &&
+    centreInbox &&
+    relayDomain &&
+    emailDomain(fromAddress) === relayDomain
+  );
+  const relayEnabled = relayFlag ? enabled(relayFlag) : relayAutoConfigured;
+  const relayModeSource = relayFlag ? 'REPLY_RELAY_ENABLED' : (relayAutoConfigured ? 'auto-configured' : 'direct-reply');
+
+  if (relayEnabled && !relaySecret) {
+    return res.status(500).json({ ok: false, error: 'Reply relay is enabled but REPLY_RELAY_SECRET is not configured.' });
+  }
+  if (relayEnabled && !centreInbox) {
+    return res.status(500).json({ ok: false, error: 'Reply relay is enabled but REPLY_TO is not configured for this centre.' });
+  }
+
+  const conversationId = crypto.randomUUID();
+  const routeKey = relayRouteKey(campusKey) || 'centre';
+  const relayToken = `${routeKey}-${crypto.randomBytes(16).toString('hex')}`;
   const relayAddress = `reply+${relayToken}@${relayDomain}`;
-  // Relay mode is deliberately feature-flagged. Until it is enabled for a
-  // deployment, parents continue replying directly to the centre inbox.
   const replyTo = relayEnabled ? relayAddress : (centreInbox || fromAddress);
 
   if (!user || !pass) {
@@ -222,6 +240,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       fromSource: resolvedFrom.source,
       replyTo,
       relayEnabled,
+      relayModeSource,
       conversationId,
     });
 
@@ -257,6 +276,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       sender: fromAddress,
       replyTo,
       relayEnabled,
+      relayModeSource,
       senderSource: resolvedFrom.source,
       logged: logResult.logged,
     });
