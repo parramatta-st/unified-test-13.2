@@ -51,9 +51,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (relayToken) {
         params.set('token', relayToken);
       } else {
-        // Preserve the route as well as sender + subject when proxying the
-        // fallback lookup. The centre deployment validates all three fields
-        // before it performs the strict centre-inbox + subject match.
         params.set('route', fallbackRoute);
         params.set('sender', fallbackSender);
         params.set('subject', fallbackSubject);
@@ -101,6 +98,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       fromName: conversation.fromName,
       fromAddress: conversation.fromAddress,
       subjectLine: conversation.subjectLine,
+      messageText: conversation.messageText,
+      messageId: conversation.messageId,
       gmailThreadId,
     });
   } catch (error: any) {
