@@ -47,10 +47,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const secure = isHttps || process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
   const tutorName = (tutorRecord?.tutorName || String(tutor || '')).trim();
   const campusKey = (tutorRecord?.campusKey || String(campus || '')).trim();
+  const role = tutorRecord?.role || 'tutor';
 
   let sessionToken = '';
   try {
-    sessionToken = await createSessionToken({ tutor: tutorName, campus: campusKey });
+    // Role is embedded inside the HMAC-signed session at the moment the tutor
+    // successfully authenticates. Admin navigation/API checks therefore do not
+    // become dependent on a fresh Google Sheets read on every page load.
+    sessionToken = await createSessionToken({ tutor: tutorName, campus: campusKey, role });
   } catch (e: any) {
     return res.status(500).json({ ok: false, error: e?.message || 'Could not create login session' });
   }
@@ -67,5 +71,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   ];
 
   res.setHeader('Set-Cookie', cookies);
-  return res.status(200).json({ ok: true, tutor: tutorName, campus: campusKey, role: tutorRecord?.role || 'tutor' });
+  return res.status(200).json({ ok: true, tutor: tutorName, campus: campusKey, role });
 }
