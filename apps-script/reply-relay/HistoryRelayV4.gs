@@ -14,7 +14,7 @@
 //   - CleanCentreReplyV31.gs
 //   - Apps Script Gmail API advanced service (v1)
 
-const ST_RELAY_V4_VERSION = '2026-08-14-history-v4.0';
+const ST_RELAY_V4_VERSION = '2026-08-14-history-v4.1';
 const ST_RELAY_V4_HISTORY_PROPERTY = 'ST_REPLY_RELAY_V4_HISTORY_ID';
 const ST_RELAY_V4_PROCESSED_META = 'ST_REPLY_RELAY_V4_PROCESSED_META';
 const ST_RELAY_V4_PROCESSED_PREFIX = 'ST_REPLY_RELAY_V4_PROCESSED_CHUNK_';
@@ -30,7 +30,7 @@ function runReplyRelayV4() {
   const startHistoryId = String(properties.getProperty(ST_RELAY_V4_HISTORY_PROPERTY) || '').trim();
 
   if (!startHistoryId) {
-    console.warn('V4 history cursor was missing. Running one bounded V3.1 recovery scan before establishing a new cursor.');
+    console.warn('V4 history cursor was missing. Running one bounded recovery scan before establishing a new cursor.');
     recoverHistoryCursorV4_('missing cursor');
     return;
   }
@@ -50,15 +50,23 @@ function runReplyRelayV4() {
   const processedList = loadProcessedIdsV4_();
   const processed = new Set(processedList);
   const messages = [];
+  let processedChanged = false;
 
   historyResponse.messageIds.forEach((messageId) => {
     if (!messageId || processed.has(messageId)) return;
-    const message = GmailApp.getMessageById(messageId);
-    if (message) messages.push(message);
+    try {
+      const message = GmailApp.getMessageById(messageId);
+      if (message) messages.push(message);
+    } catch (error) {
+      // A message can be deleted between history.list and getMessageById. It
+      // cannot be relayed anymore, and it must not pin the history cursor.
+      console.warn(`V4 skipped Gmail message ${messageId} because it is no longer available: ${error}`);
+      rememberProcessedV4_(processedList, processed, messageId);
+      processedChanged = true;
+    }
   });
   messages.sort((a, b) => a.getDate().getTime() - b.getDate().getTime());
 
-  let processedChanged = false;
   let retryRequired = false;
   let candidateCount = 0;
 
@@ -197,6 +205,51 @@ function listAddedMessagesSinceV4_(startHistoryId) {
   };
 }
 
+function runBoundedBackfillV4_(cfg) {
+  const queries = [
+    `in:inbox newer_than:${cfg.lookbackDays}d to:(${cfg.relayDomain})`,
+    `in:inbox newer_than:${cfg.lookbackDays}d from:successtutoring.com.au`,
+    `in:inbox newer_than:${cfg.lookbackDays}d from:successtutoring.com`,
+  ];
+
+  const threadsById = new Map();
+  queries.forEach((query) => {
+    GmailApp.search(query, 0, cfg.maxThreads).forEach((thread) => threadsById.set(thread.getId(), thread));
+  });
+
+  const messagesById = new Map();
+  Array.from(threadsById.values()).forEach((thread) => {
+    thread.getMessages().forEach((message) => messagesById.set(message.getId(), message));
+  });
+
+  const messages = Array.from(messagesById.values());
+  messages.sort((a, b) => a.getDate().getTime() - b.getDate().getTime());
+
+  const processedList = loadProcessedIdsV4_();
+  const processed = new Set(processedList);
+  let changed = false;
+  let failures = 0;
+  let candidates = 0;
+
+  messages.forEach((message) => {
+    if (!isRelayCandidateV4_(message, cfg)) return;
+    candidates += 1;
+    try {
+      if (processRelayMessageV4_(cfg, message, processedList, processed)) changed = true;
+    } catch (error) {
+      failures += 1;
+      console.error(`V4 bounded backfill failed for Gmail message ${message.getId()}: ${error && error.stack ? error.stack : error}`);
+    }
+  });
+
+  if (changed || !PropertiesService.getScriptProperties().getProperty(ST_RELAY_V4_PROCESSED_META)) {
+    saveProcessedIdsV4_(processedList);
+  }
+  if (failures) throw new Error(`V4 bounded backfill left ${failures} relay message(s) unresolved.`);
+
+  console.log(`V4 bounded backfill checked ${threadsById.size} threads, ${messages.length} messages and ${candidates} relay candidates.`);
+}
+
 function isRelayCandidateV4_(message, cfg) {
   if (relayTokenFromMessage_(message, cfg.relayDomain)) return true;
   const sender = extractAddress_(message.getFrom());
@@ -226,14 +279,10 @@ function recoverHistoryCursorV4_(reason) {
   const baselineHistoryId = String(profile && profile.historyId ? profile.historyId : '');
   if (!baselineHistoryId) throw new Error('Gmail API did not return a historyId during V4 recovery.');
 
-  // Capture any currently-visible relay messages using the already-proven V3.1
-  // bounded scan. The baseline was taken first, so messages arriving during the
-  // recovery are still returned by the next history.list call. Duplicates are
-  // suppressed by the processed stores and webhook idempotency.
-  runReplyRelayV31();
-
-  const migrated = uniqueIdsV4_(loadProcessedIdsV4_().concat(loadProcessedIds_()));
-  saveProcessedIdsV4_(migrated);
+  // The baseline is taken first. Messages arriving during this bounded scan are
+  // therefore returned by the next history.list call. The chunked processed
+  // store suppresses any overlap between the backfill and the history window.
+  runBoundedBackfillV4_(relayConfig_());
   PropertiesService.getScriptProperties().setProperty(ST_RELAY_V4_HISTORY_PROPERTY, baselineHistoryId);
 
   console.log(JSON.stringify({
@@ -241,7 +290,7 @@ function recoverHistoryCursorV4_(reason) {
     version: ST_RELAY_V4_VERSION,
     recoveryReason: reason,
     baselineHistoryId,
-    migratedProcessedIds: migrated.length,
+    processedIds: loadProcessedIdsV4_().length,
   }, null, 2));
 }
 
@@ -265,7 +314,8 @@ function loadProcessedIdsV4_() {
     }
   }
 
-  // One-time backwards-compatible migration path from Code.gs.
+  // One-time backwards-compatible migration path from Code.gs. V4 writes the
+  // migrated IDs into multiple small values so no property can exceed 9 KB.
   return uniqueIdsV4_(loadProcessedIds_()).slice(-ST_RELAY_V4_MAX_PROCESSED_IDS);
 }
 
@@ -334,8 +384,7 @@ function verifyHistoryRelayDependenciesV4_() {
   if (!Gmail.Users.History || typeof Gmail.Users.History.list !== 'function') {
     throw new Error('The Gmail API history service is unavailable. Keep Gmail API v1 enabled under Apps Script Services.');
   }
-  if (typeof runReplyRelayV31 !== 'function' ||
-      typeof handleCentreReplyCleanV31_ !== 'function' ||
+  if (typeof handleCentreReplyCleanV31_ !== 'function' ||
       typeof handleParentReplyThreadedV3_ !== 'function') {
     throw new Error('V4 dependencies are missing. Keep Code.gs, ScannerV2.gs, ThreadedRelayV3.gs and CleanCentreReplyV31.gs installed.');
   }
@@ -388,11 +437,9 @@ function installHistoryRelayV4() {
     const baselineHistoryId = String(profile && profile.historyId ? profile.historyId : '');
     if (!baselineHistoryId) throw new Error('Gmail API did not return a historyId during V4 installation.');
 
-    // Complete one final bounded V3.1 scan before switching. Taking the baseline
-    // first means any messages arriving during this scan remain visible to V4.
-    runReplyRelayV31();
-    const migrated = uniqueIdsV4_(loadProcessedIdsV4_().concat(loadProcessedIds_()));
-    saveProcessedIdsV4_(migrated);
+    // Complete one bounded scan before switching. Taking the baseline first
+    // means any messages arriving during this scan remain visible to V4.
+    runBoundedBackfillV4_(relayConfig_());
     PropertiesService.getScriptProperties().setProperty(ST_RELAY_V4_HISTORY_PROPERTY, baselineHistoryId);
 
     ScriptApp.getProjectTriggers()
