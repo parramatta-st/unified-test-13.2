@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
 import TimeClockButton from './TimeClockButton';
+import { clearTimeClockStatus } from '../lib/timeClockClientState';
 
 export default function Header(){
   const router = useRouter();
@@ -78,7 +79,13 @@ export default function Header(){
   async function doLogout(e: React.MouseEvent){
     e.preventDefault();
     await fetch('/api/logout', { method:'POST' });
-    try { localStorage.removeItem('st_tutor'); localStorage.removeItem('st_tutor_full'); localStorage.removeItem('st_campus'); localStorage.removeItem('st_is_admin'); } catch {}
+    try {
+      clearTimeClockStatus(localStorage);
+      localStorage.removeItem('st_tutor');
+      localStorage.removeItem('st_tutor_full');
+      localStorage.removeItem('st_campus');
+      localStorage.removeItem('st_is_admin');
+    } catch {}
     window.location.href = '/login';
   }
 

@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import {
+  TIME_CLOCK_STATUS_STORAGE_KEY,
+  getRememberedTimeClockStatus,
+  normaliseTimeClockStatus,
+  readTimeClockStatus,
+  rememberTimeClockStatus,
+  type TimeClockShiftSnapshot,
+} from '../lib/timeClockClientState';
 import { hasWrittenOverrideReason } from '../lib/timeClockValidation';
 
-type ShiftSnapshot = {
-  shiftId: string;
-  tutorName: string;
-  clockIn: string;
-  clockOut: string;
-  status: string;
-  reviewFlags?: string[];
-};
+type ShiftSnapshot = TimeClockShiftSnapshot;
 
 type ClockState = {
   ok?: boolean;
@@ -30,6 +31,112 @@ type ClockState = {
 };
 
 type LocationPhase = 'idle' | 'requesting' | 'verifying' | 'verified' | 'error';
+
+let sharedStateRequest: Promise<ClockState> | null = null;
+let sharedServerState: ClockState | null = null;
+let sharedServerStateAt = 0;
+let sharedRequestGeneration = 0;
+
+function delay(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function invalidateSharedStateRequest() {
+  sharedRequestGeneration += 1;
+  sharedStateRequest = null;
+  sharedServerState = null;
+  sharedServerStateAt = 0;
+}
+
+async function requestClockState(force = false) {
+  if (
+    !force &&
+    sharedServerState &&
+    Date.now() - sharedServerStateAt < 3_000
+  ) {
+    return sharedServerState;
+  }
+  if (sharedStateRequest) return sharedStateRequest;
+
+  const generation = sharedRequestGeneration;
+  const request = (async () => {
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await fetch('/api/time-clock', { cache: 'no-store' });
+        const json = await response.json().catch(() => ({}));
+        if (!response.ok || !json?.ok) {
+          const requestError = new Error(json?.error || 'Time Clock is unavailable.');
+          (requestError as any).status = response.status;
+          throw requestError;
+        }
+        return json as ClockState;
+      } catch (error: any) {
+        lastError = error instanceof Error ? error : new Error('Time Clock is unavailable.');
+        const status = Number(error?.status || 0);
+        if (attempt === 0 && (!status || status >= 500)) {
+          await delay(350);
+          continue;
+        }
+        throw lastError;
+      }
+    }
+    throw lastError || new Error('Time Clock is unavailable.');
+  })();
+  sharedStateRequest = request;
+  try {
+    const state = await request;
+    if (generation === sharedRequestGeneration) {
+      sharedServerState = state;
+      sharedServerStateAt = Date.now();
+    }
+    return state;
+  } finally {
+    if (sharedStateRequest === request) sharedStateRequest = null;
+  }
+}
+
+function currentSessionIdentity() {
+  if (typeof window === 'undefined') return { tutor: '', campus: '' };
+  try {
+    return {
+      tutor: localStorage.getItem('st_tutor') || '',
+      campus: localStorage.getItem('st_campus') || '',
+    };
+  } catch {
+    return { tutor: '', campus: '' };
+  }
+}
+
+function rememberedStatusForCurrentSession() {
+  if (typeof window === 'undefined') return null;
+  return getRememberedTimeClockStatus(currentSessionIdentity());
+}
+
+function statusState(status: ReturnType<typeof getRememberedTimeClockStatus>): ClockState {
+  return status
+    ? {
+        ok: true,
+        tutor: status.tutor,
+        campus: status.campus,
+        activeShift: status.activeShift,
+      }
+    : {};
+}
+
+function cacheClockStatus(state: ClockState) {
+  if (typeof window === 'undefined' || !state.tutor || !state.campus) return null;
+  return rememberTimeClockStatus(
+    {
+      version: 1,
+      tutor: state.tutor,
+      campus: state.campus,
+      activeShift: state.activeShift || null,
+      updatedAt: Date.now(),
+    },
+    window.localStorage,
+  );
+}
 
 function formatTime(value?: string) {
   if (!value) return '';
@@ -70,9 +177,10 @@ function locationError(error: GeolocationPositionError) {
 }
 
 export default function TimeClockButton() {
-  const [state, setState] = useState<ClockState>({});
+  const initialStatus = rememberedStatusForCurrentSession();
+  const [state, setState] = useState<ClockState>(() => statusState(initialStatus));
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialStatus);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -85,17 +193,18 @@ export default function TimeClockButton() {
   const [, setTick] = useState(0);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const pendingRequest = useRef<{ signature: string; requestId: string } | null>(null);
+  const stateRevision = useRef(0);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
+    const revision = stateRevision.current;
     try {
-      const response = await fetch('/api/time-clock', { cache: 'no-store' });
-      const json = await response.json().catch(() => ({}));
-      if (!response.ok || !json?.ok) {
-        throw new Error(json?.error || 'Time Clock is unavailable.');
-      }
+      const json = await requestClockState(force);
+      if (revision !== stateRevision.current) return;
       setState(json);
       setTarget((current) => current || json.tutor || '');
+      cacheClockStatus(json);
     } catch (loadError: any) {
+      if (revision !== stateRevision.current) return;
       setState((current) => ({
         ...current,
         ok: false,
@@ -107,19 +216,54 @@ export default function TimeClockButton() {
   }, []);
 
   useEffect(() => {
-    load();
+    const applyStatus = (value: unknown) => {
+      const status = normaliseTimeClockStatus(value, currentSessionIdentity());
+      if (!status) return;
+      invalidateSharedStateRequest();
+      stateRevision.current += 1;
+      rememberTimeClockStatus(status);
+      setState((current) => ({
+        ...current,
+        ok: true,
+        tutor: status.tutor,
+        campus: status.campus,
+        activeShift: status.activeShift,
+        error: undefined,
+      }));
+      setTarget((current) => current || status.tutor);
+      setLoading(false);
+    };
+    const stored = readTimeClockStatus(window.localStorage, currentSessionIdentity());
+    if (stored) applyStatus(stored);
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== TIME_CLOCK_STATUS_STORAGE_KEY) return;
+      if (!event.newValue) {
+        invalidateSharedStateRequest();
+        stateRevision.current += 1;
+        setState((current) => ({ ...current, activeShift: null }));
+        void load(true);
+        return;
+      }
+      try {
+        applyStatus(JSON.parse(event.newValue));
+      } catch {}
+    };
+
+    void load();
     const tickId = window.setInterval(() => setTick((value) => value + 1), 30_000);
-    const refreshId = window.setInterval(load, 120_000);
-    const onFocus = () => load();
+    const refreshId = window.setInterval(() => void load(true), 120_000);
+    const onFocus = () => void load(true);
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') load();
+      if (document.visibilityState === 'visible') void load(true);
     };
     window.addEventListener('focus', onFocus);
+    window.addEventListener('storage', onStorage);
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       window.clearInterval(tickId);
       window.clearInterval(refreshId);
       window.removeEventListener('focus', onFocus);
+      window.removeEventListener('storage', onStorage);
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [load]);
@@ -186,7 +330,7 @@ export default function TimeClockButton() {
     setLocationPhase('idle');
     setLocationDetail('');
     setTarget(state.tutor || '');
-    load();
+    void load(true);
   }
 
   async function act() {
@@ -253,7 +397,10 @@ export default function TimeClockButton() {
       const completedAction = action;
       const completedTarget = target;
       const returnedShift = json.shift as ShiftSnapshot | null;
-      setState((current) => {
+      invalidateSharedStateRequest();
+      stateRevision.current += 1;
+      const nextState = (() => {
+        const current = state;
         const isSelf =
           completedTarget.toLowerCase() === String(current.tutor || '').toLowerCase();
         const remainingActiveShifts = (current.activeShifts || []).filter(
@@ -273,13 +420,14 @@ export default function TimeClockButton() {
               : remainingActiveShifts
             : current.activeShifts,
         };
-      });
-      window.dispatchEvent(new CustomEvent('st-time-clock-refresh'));
+      })();
+      setState(nextState);
+      cacheClockStatus(nextState);
       window.setTimeout(() => {
         setOpen(false);
         setMessage('');
       }, 650);
-      void load();
+      void load(true);
     } catch (actionError: any) {
       if (response && response.status < 500) pendingRequest.current = null;
       setLocationPhase('error');
@@ -298,10 +446,10 @@ export default function TimeClockButton() {
   }
 
   const selfActive = state.activeShift;
-  const triggerText = loading
-    ? 'Time Clock'
-    : selfActive
-      ? 'Clocked In'
+  const triggerText = selfActive
+    ? 'Clocked In'
+    : loading
+      ? 'Time Clock'
       : 'Clock In';
   const actionDisabled =
     busy ||
