@@ -113,7 +113,13 @@ export default function Header(){
         {!hideNav && <div className="header-time-clock"><TimeClockButton /></div>}
       </div>
       <style jsx>{`
-        .header-time-clock { margin-left: .25rem; flex: 0 0 auto; }
+        .header-time-clock {
+          display: flex;
+          align-items: center;
+          align-self: center;
+          margin-left: .25rem;
+          flex: 0 0 auto;
+        }
         .nav {
           align-items: center;
           justify-content: flex-end;
@@ -136,10 +142,30 @@ export default function Header(){
           box-shadow: 0 0 0 2px rgba(220,38,38,.12);
         }
         @media (max-width: 900px) {
-          .header-inner { flex-direction: row; flex-wrap: wrap; align-items: center; }
-          .brand-link { order: 1; width: auto; }
-          .header-time-clock { order: 2; margin-left: auto; }
-          .nav { order: 3;
+          .header-inner {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            grid-template-areas:
+              "brand clock"
+              "nav nav";
+            align-items: center;
+            column-gap: .75rem;
+            row-gap: .55rem;
+          }
+          .brand-link {
+            grid-area: brand;
+            width: auto;
+            min-width: 0;
+            align-self: center;
+          }
+          .header-time-clock {
+            grid-area: clock;
+            align-self: center;
+            justify-self: end;
+            margin-left: 0;
+          }
+          .nav {
+            grid-area: nav;
             width: 100%;
             margin-left: 0;
             justify-content: flex-start;
@@ -150,7 +176,12 @@ export default function Header(){
         @media (max-width: 430px) {
           .brand-link { font-size: 1.2rem !important; min-width: 0; }
           .brand-portal { display: none; }
-          .header-inner { padding-left: .7rem !important; padding-right: .7rem !important; gap: .4rem; }
+          .header-inner {
+            padding-left: .7rem !important;
+            padding-right: .7rem !important;
+            column-gap: .4rem;
+            row-gap: .5rem;
+          }
         }
       `}</style>
     </header>
