@@ -52,9 +52,10 @@ TIME_CLOCK_RADIUS_METRES=150
 ```
 
 The pin was cross-checked against the centre's official Google Maps listing and
-the 7K Parkes Street property map. Set these values in Preview first. Add the
-same values to Production only after the on-site phone test passes. Redeploy
-after changing Vercel variables.
+the 7K Parkes Street property map. These non-sensitive server values are
+versioned in `vercel.json`, so Vercel applies them consistently to Preview and
+Production deployments. Update that file and redeploy if the centre pin or
+allowed radius changes.
 
 None of these variables should use the `NEXT_PUBLIC_` prefix. The browser sends
 its one-time reading to the API, and the server calculates the distance from the
