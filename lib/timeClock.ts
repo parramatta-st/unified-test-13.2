@@ -1206,7 +1206,7 @@ let storageReady:
   | { spreadsheetId: string; promise: Promise<void> }
   | undefined;
 
-export async function ensureTimeClockStorage() {
+function assertTimeClockStorageConfigured() {
   const config = timeClockConfigured();
   const spreadsheetId = timeClockSpreadsheetId();
   if (!config.sheets) {
@@ -1218,6 +1218,18 @@ export async function ensureTimeClockStorage() {
         : 'Time Clock needs TIME_CLOCK_SPREADSHEET_ID or GOOGLE_SHEETS_SPREADSHEET_ID.',
     );
   }
+  return spreadsheetId;
+}
+
+export function isMissingTimeClockSheetError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return /unable to parse range|requested entity was not found|sheet.*not found/i.test(
+    message,
+  );
+}
+
+export async function ensureTimeClockStorage() {
+  const spreadsheetId = assertTimeClockStorageConfigured();
   if (
     storageReady &&
     storageReady.spreadsheetId === spreadsheetId
@@ -1249,10 +1261,20 @@ function rowsFingerprint(rows: SheetRow[]) {
 }
 
 export async function loadTimeClockState(): Promise<TimeClockState> {
-  await ensureTimeClockStorage();
+  assertTimeClockStorageConfigured();
   const names = timeClockSheetNames();
   const spreadsheetId = timeClockSpreadsheetId();
-  const eventRows = await readSheetRows(names.events, spreadsheetId);
+  let eventRows: SheetRow[];
+  try {
+    eventRows = await readSheetRows(names.events, spreadsheetId);
+  } catch (error) {
+    if (!isMissingTimeClockSheetError(error)) throw error;
+    // First use: create all owned tabs and headers. Normal status reads avoid
+    // repeatedly rechecking every sheet, which keeps navigation comfortably
+    // below Google Sheets' per-minute read quota.
+    await ensureTimeClockStorage();
+    eventRows = await readSheetRows(names.events, spreadsheetId);
+  }
   if (!eventRows.length) {
     const legacyRows = await readSheetRows(names.shifts, spreadsheetId);
     if (legacyRows.length) {

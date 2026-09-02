@@ -109,8 +109,18 @@ function sendError(res: NextApiResponse, error: unknown) {
     });
   }
   const message = error instanceof Error ? error.message : 'Time Clock request failed.';
+  const diagnostic = /quota|rate limit|resource exhausted|too many requests/i.test(message)
+    ? 'GOOGLE_SHEETS_RATE_LIMIT'
+    : /fetch failed|network|socket|timed out|timeout/i.test(message)
+      ? 'UPSTREAM_NETWORK'
+      : /permission|forbidden/i.test(message)
+        ? 'GOOGLE_SHEETS_PERMISSION'
+        : /unable to parse range|sheet.*not found/i.test(message)
+          ? 'GOOGLE_SHEET_MISSING'
+          : 'UNCLASSIFIED_UPSTREAM';
   console.error('[time-clock] unexpected request failure', {
     name: error instanceof Error ? error.name : 'UnknownError',
+    diagnostic,
   });
   return res.status(500).json({ ok: false, code: 'TIME_CLOCK_ERROR', error: message });
 }

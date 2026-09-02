@@ -227,26 +227,54 @@ async function getAccessToken() {
   return cachedToken.token;
 }
 
+export function isRetryableGoogleSheetsStatus(status: number) {
+  return status === 429 || (status >= 500 && status <= 504);
+}
+
+function wait(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 async function sheetsFetch(path: string, init: RequestInit = {}) {
   const token = await getAccessToken();
-  const response = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${path}`,
-    {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(init.headers || {}),
-      },
-    },
-  );
-  const text = await response.text();
-  let json: any = {};
-  try {
-    json = text ? JSON.parse(text) : {};
-  } catch {
-    json = { raw: text };
-  }
-  if (!response.ok) {
+  const method = String(init.method || 'GET').toUpperCase();
+  const maximumAttempts = method === 'GET' ? 3 : 1;
+  for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
+    let response: Response;
+    try {
+      response = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${path}`,
+        {
+          ...init,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...(init.headers || {}),
+          },
+        },
+      );
+    } catch (error) {
+      if (method === 'GET' && attempt + 1 < maximumAttempts) {
+        await wait(300 * 3 ** attempt);
+        continue;
+      }
+      throw error;
+    }
+    const responseText = await response.text();
+    let json: any = {};
+    try {
+      json = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      json = { raw: responseText };
+    }
+    if (response.ok) return json;
+    if (
+      method === 'GET' &&
+      isRetryableGoogleSheetsStatus(response.status) &&
+      attempt + 1 < maximumAttempts
+    ) {
+      await wait(300 * 3 ** attempt);
+      continue;
+    }
     const msg =
       json?.error?.message ||
       json?.error_description ||
@@ -254,7 +282,7 @@ async function sheetsFetch(path: string, init: RequestInit = {}) {
       `Google Sheets API failed (${response.status})`;
     throw new Error(friendlyGoogleAuthError(msg));
   }
-  return json;
+  throw new Error('Google Sheets request failed after retrying.');
 }
 
 function quoteSheetName(sheetName: string) {
