@@ -16,6 +16,7 @@ import {
   verifyLocation,
   type LocationInput,
 } from '../../lib/timeClock';
+import { hasWrittenOverrideReason } from '../../lib/timeClockValidation';
 
 function norm(value: unknown) {
   return String(value ?? '').trim();
@@ -96,6 +97,10 @@ function locationStatus(status: ReturnType<typeof verifyLocation>) {
 
 function sendError(res: NextApiResponse, error: unknown) {
   if (error instanceof TimeClockError) {
+    console.warn('[time-clock] request rejected', {
+      status: error.status,
+      code: error.code,
+    });
     return res.status(error.status).json({
       ok: false,
       code: error.code,
@@ -104,6 +109,9 @@ function sendError(res: NextApiResponse, error: unknown) {
     });
   }
   const message = error instanceof Error ? error.message : 'Time Clock request failed.';
+  console.error('[time-clock] unexpected request failure', {
+    name: error instanceof Error ? error.name : 'UnknownError',
+  });
   return res.status(500).json({ ok: false, code: 'TIME_CLOCK_ERROR', error: message });
 }
 
@@ -235,11 +243,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         'Only admins can override the location requirement.',
       );
     }
-    if (adminOverride && overrideReason.length < 8) {
+    if (adminOverride && !hasWrittenOverrideReason(overrideReason)) {
       throw new TimeClockError(
         400,
         'OVERRIDE_REASON_REQUIRED',
-        'Enter a clear written reason of at least 8 characters for the override.',
+        'Enter a written reason for the admin location override.',
       );
     }
 
@@ -306,6 +314,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ? result.state.shifts.find((candidate) => candidate.shiftId === outcome.shiftId) || null
       : null;
     if (!outcome.accepted) {
+      console.warn('[time-clock] event rejected', {
+        status: statusForOutcome(outcome),
+        code: outcome.code,
+      });
       return res.status(statusForOutcome(outcome)).json({
         ok: false,
         code: outcome.code,

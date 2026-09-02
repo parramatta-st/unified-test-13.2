@@ -9,6 +9,12 @@ owned tabs, which are created with their headers automatically on first use:
 - `time_clock_shifts` — generated current shift view
 - `time_clock_adjustments` — generated admin audit view
 
+The generated shift and adjustment views store each pay category as integer
+minutes (`normalMinutes`, `after7Minutes`, and `saturdayMinutes`). Decimal hour
+columns remain alongside them for readable exports and backward compatibility,
+but fortnight totals are summed from integer minutes and only then converted to
+hours for display. This prevents floating-point drift across a pay period.
+
 Do not manually edit the event ledger. Each event has a server-generated hash;
 an altered or incomplete event is excluded and shown to admins as an integrity
 warning. Shift and adjustment tabs are rebuilt from the ledger after mutations,
