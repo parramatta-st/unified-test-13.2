@@ -106,10 +106,13 @@ function privateKey() {
 
 export function privateSheetsConfigured() {
   return !!(
-    serviceAccountEmail() &&
-    privateKey() &&
+    googleSheetsCredentialsConfigured() &&
     norm(process.env.GOOGLE_SHEETS_SPREADSHEET_ID)
   );
+}
+
+export function googleSheetsCredentialsConfigured() {
+  return !!(serviceAccountEmail() && privateKey());
 }
 
 export function privateSheetsConfigSummary() {
@@ -165,9 +168,9 @@ function friendlyGoogleAuthError(error: any) {
 }
 
 async function getAccessToken() {
-  if (!privateSheetsConfigured())
+  if (!googleSheetsCredentialsConfigured())
     throw new Error(
-      "Google private Sheets is not configured. Set GOOGLE_SERVICE_ACCOUNT_JSON, or set GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY, and GOOGLE_SHEETS_SPREADSHEET_ID.",
+      "Google Sheets credentials are not configured. Set GOOGLE_SERVICE_ACCOUNT_JSON, or set GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_PRIVATE_KEY.",
     );
   const now = Date.now();
   if (cachedAuthFailure && cachedAuthFailure.expiresAt > now)
@@ -330,13 +333,24 @@ export async function ensureSheet(
     .map((s: any) => s?.properties?.title)
     .filter(Boolean);
   if (titles.includes(sheetName)) return;
-  await sheetsFetch(`${encodeURIComponent(spreadsheetId)}:batchUpdate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      requests: [{ addSheet: { properties: { title: sheetName } } }],
-    }),
-  });
+  try {
+    await sheetsFetch(`${encodeURIComponent(spreadsheetId)}:batchUpdate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requests: [{ addSheet: { properties: { title: sheetName } } }],
+      }),
+    });
+  } catch (error) {
+    // Two cold server instances can both observe a missing tab. Accept the
+    // losing addSheet request only after re-reading and confirming the exact
+    // sheet now exists; otherwise preserve the original failure.
+    const latest = await getSpreadsheet(spreadsheetId).catch(() => null);
+    const nowExists = (latest?.sheets || []).some(
+      (sheet: any) => sheet?.properties?.title === sheetName,
+    );
+    if (!nowExists) throw error;
+  }
 }
 
 export async function readSheetValues(
@@ -357,6 +371,37 @@ export async function readSheetRows(
   return rowsToObjects(values);
 }
 
+/**
+ * Creates an owned sheet when needed and safely upgrades its header row.
+ * Existing rows and extra columns are retained. This is useful for append-only
+ * ledgers whose schema may gain audit columns in a later release.
+ */
+export async function ensureSheetHeaders(
+  sheetName: string,
+  requiredHeaders: string[],
+  spreadsheetId = spreadsheetIdFor(),
+) {
+  await ensureSheet(sheetName, spreadsheetId);
+  const existing = await readSheetValues(sheetName, spreadsheetId);
+  if (!existing.length) {
+    await overwriteSheetRows(sheetName, requiredHeaders, [], spreadsheetId);
+    return requiredHeaders;
+  }
+  const currentHeaders = (existing[0] || [])
+    .map((header: any) => norm(header))
+    .filter(Boolean);
+  const effectiveHeaders = mergeHeaders(requiredHeaders, currentHeaders);
+  if (effectiveHeaders.join("\u0001") !== currentHeaders.join("\u0001")) {
+    await overwriteSheetRows(
+      sheetName,
+      effectiveHeaders,
+      rowsToObjects(existing),
+      spreadsheetId,
+    );
+  }
+  return effectiveHeaders;
+}
+
 export async function overwriteSheetRows(
   sheetName: string,
   headers: string[],
@@ -364,9 +409,9 @@ export async function overwriteSheetRows(
   spreadsheetId = spreadsheetIdFor(),
 ) {
   await ensureSheet(sheetName, spreadsheetId);
-  const existing = await readSheetValues(sheetName, spreadsheetId).catch(
-    () => [] as any[][],
-  );
+  // A failed read is not equivalent to an empty sheet. Continuing after a
+  // transient permission/network error could overwrite or misalign live data.
+  const existing = await readSheetValues(sheetName, spreadsheetId);
   const values = [
     headers,
     ...rows.map((row) => headers.map((header) => row[header] ?? "")),
@@ -424,21 +469,26 @@ export async function appendSheetRows(
 ) {
   if (!rows.length) return { appended: 0 };
   await ensureSheet(sheetName, spreadsheetId);
-  let existing: any[][] = [];
-  try {
-    existing = await readSheetValues(sheetName, spreadsheetId);
-  } catch {
-    existing = [];
-  }
+  let existing = await readSheetValues(sheetName, spreadsheetId);
   let effectiveHeaders = headers;
   if (!existing.length) {
     await overwriteSheetRows(sheetName, headers, [], spreadsheetId);
+    existing = [headers];
   } else {
     const currentHeaders = (existing[0] || [])
       .map((h: any) => norm(h))
       .filter(Boolean);
-    if (currentHeaders.length)
+    if (currentHeaders.length) {
       effectiveHeaders = mergeHeaders(headers, currentHeaders);
+      if (effectiveHeaders.join("\u0001") !== currentHeaders.join("\u0001")) {
+        await overwriteSheetRows(
+          sheetName,
+          effectiveHeaders,
+          rowsToObjects(existing),
+          spreadsheetId,
+        );
+      }
+    }
   }
   const values = rows.map((row) =>
     effectiveHeaders.map((header) => row[header] ?? ""),
