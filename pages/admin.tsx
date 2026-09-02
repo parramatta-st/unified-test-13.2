@@ -64,6 +64,7 @@ export default function AdminPage() {
             <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
               <Link className="btn" href="/admin/members" prefetch={false}>Members</Link>
               <Link className="btn" href="/admin/tutors" prefetch={false}>Tutors</Link>
+              <Link className="btn" href="/admin/time-clock" prefetch={false}>Time Clock</Link>
               <Link className="btn" href="/settings" prefetch={false}>Print Colour Settings</Link>
               <button className="btn" onClick={load} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
             </div>

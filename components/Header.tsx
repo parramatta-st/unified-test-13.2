@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
+import TimeClockButton from './TimeClockButton';
 
 export default function Header(){
   const router = useRouter();
@@ -109,8 +110,10 @@ export default function Header(){
             </button>
           </nav>
         )}
+        {!hideNav && <div className="header-time-clock"><TimeClockButton /></div>}
       </div>
       <style jsx>{`
+        .header-time-clock { margin-left: .25rem; flex: 0 0 auto; }
         .nav {
           align-items: center;
           justify-content: flex-end;
@@ -132,15 +135,22 @@ export default function Header(){
           line-height: 1;
           box-shadow: 0 0 0 2px rgba(220,38,38,.12);
         }
-        @media (max-width: 760px) {
-          .header-inner { flex-wrap: wrap; }
-          .nav {
+        @media (max-width: 900px) {
+          .header-inner { flex-direction: row; flex-wrap: wrap; align-items: center; }
+          .brand-link { order: 1; width: auto; }
+          .header-time-clock { order: 2; margin-left: auto; }
+          .nav { order: 3;
             width: 100%;
             margin-left: 0;
             justify-content: flex-start;
             overflow-x: auto;
             padding-bottom: .1rem;
           }
+        }
+        @media (max-width: 430px) {
+          .brand-link { font-size: 1.2rem !important; min-width: 0; }
+          .brand-portal { display: none; }
+          .header-inner { padding-left: .7rem !important; padding-right: .7rem !important; gap: .4rem; }
         }
       `}</style>
     </header>

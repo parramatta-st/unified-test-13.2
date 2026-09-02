@@ -1,6 +1,6 @@
 {
   "name": "success-tutoring-portal",
-  "version": "1.6.57-duplicate-print-precision",
+  "version": "1.7.0-time-clock",
   "private": true,
   "engines": {
     "node": ">=18.17.0"
@@ -9,7 +9,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "echo 'skipping lint'"
+    "lint": "echo 'No ESLint configuration; lint is intentionally skipped'",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "cookie": "0.6.0",
@@ -26,6 +28,7 @@
     "@types/nodemailer": "6.4.15",
     "@types/papaparse": "5.2.6",
     "@types/react": "18.3.5",
+    "tsx": "4.23.13",
     "typescript": "5.6.3"
   }
 }
