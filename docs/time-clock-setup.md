@@ -42,17 +42,19 @@ TIME_CLOCK_SPREADSHEET_ID=time_clock_spreadsheet_id
 When `TIME_CLOCK_SPREADSHEET_ID` is absent, the existing
 `GOOGLE_SHEETS_SPREADSHEET_ID` is used.
 
-The centre geofence requires exact coordinates supplied by the centre:
+The confirmed Parramatta centre is **Suite 101, Level 1/7K Parkes St,
+Harris Park NSW 2150**. Its verified building pin is:
 
 ```env
-TIME_CLOCK_LATITUDE=<exact centre latitude>
-TIME_CLOCK_LONGITUDE=<exact centre longitude>
+TIME_CLOCK_LATITUDE=-33.819078
+TIME_CLOCK_LONGITUDE=151.0090804
 TIME_CLOCK_RADIUS_METRES=150
 ```
 
-Do not guess these coordinates. Set them for Development, Preview, and
-Production only after confirming the actual Parramatta centre address or GPS
-coordinates. Redeploy after changing Vercel variables.
+The pin was cross-checked against the centre's official Google Maps listing and
+the 7K Parkes Street property map. Set these values in Preview first. Add the
+same values to Production only after the on-site phone test passes. Redeploy
+after changing Vercel variables.
 
 None of these variables should use the `NEXT_PUBLIC_` prefix. The browser sends
 its one-time reading to the API, and the server calculates the distance from the
