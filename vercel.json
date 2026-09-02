@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "env": {
+    "TIME_CLOCK_LATITUDE": "-33.819078",
+    "TIME_CLOCK_LONGITUDE": "151.0090804",
+    "TIME_CLOCK_RADIUS_METRES": "150"
+  }
+}
