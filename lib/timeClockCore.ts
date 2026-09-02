@@ -11,6 +11,11 @@ export type SydneyLocalParts = {
 };
 
 export type PaidHours = {
+  normalMinutes: number;
+  after7Minutes: number;
+  saturdayMinutes: number;
+  unclassifiedMinutes: number;
+  elapsedMinutes: number;
   normalHours: number;
   after7Hours: number;
   saturdayHours: number;
@@ -45,6 +50,43 @@ const partFormatter = new Intl.DateTimeFormat('en-AU', {
 
 function roundHours(milliseconds: number) {
   return Math.round((milliseconds / 3_600_000) * 1_000_000) / 1_000_000;
+}
+
+type MinuteCategory = 'normal' | 'after7' | 'saturday' | 'unclassified';
+
+/**
+ * Converts exact category durations to whole payroll minutes while keeping the
+ * categories mutually exclusive and their sum equal to the rounded shift
+ * duration. Largest-remainder allocation avoids independently rounding each
+ * category and accidentally gaining or losing a minute at a boundary.
+ */
+function allocatePayrollMinutes(milliseconds: Record<MinuteCategory, number>) {
+  const categories = (Object.keys(milliseconds) as MinuteCategory[]).map(
+    (category, order) => {
+      const exact = milliseconds[category] / 60_000;
+      const floor = Math.floor(exact);
+      return { category, order, floor, remainder: exact - floor };
+    },
+  );
+  const totalMinutes = Math.round(
+    Object.values(milliseconds).reduce((total, value) => total + value, 0) / 60_000,
+  );
+  const allocated = Object.fromEntries(
+    categories.map(({ category, floor }) => [category, floor]),
+  ) as Record<MinuteCategory, number>;
+  let remaining = totalMinutes - categories.reduce((total, row) => total + row.floor, 0);
+  const byRemainder = [...categories].sort(
+    (first, second) =>
+      second.remainder - first.remainder || first.order - second.order,
+  );
+  for (let index = 0; index < remaining; index += 1) {
+    allocated[byRemainder[index].category] += 1;
+  }
+  return { ...allocated, total: totalMinutes };
+}
+
+function hoursFromMinutes(minutes: number) {
+  return Math.round((minutes / 60) * 1_000_000) / 1_000_000;
 }
 
 function calendarDateIsValid(year: number, month: number, day: number) {
@@ -306,6 +348,11 @@ function nextLocalDay(parts: SydneyLocalParts) {
 export function splitPaidHours(startMs: number, endMs: number): PaidHours {
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
     return {
+      normalMinutes: 0,
+      after7Minutes: 0,
+      saturdayMinutes: 0,
+      unclassifiedMinutes: 0,
+      elapsedMinutes: 0,
       normalHours: 0,
       after7Hours: 0,
       saturdayHours: 0,
@@ -347,12 +394,24 @@ export function splitPaidHours(startMs: number, endMs: number): PaidHours {
     cursor = segmentEnd;
   }
 
+  const minutes = allocatePayrollMinutes({
+    normal: normalMs,
+    after7: after7Ms,
+    saturday: saturdayMs,
+    unclassified: unclassifiedMs,
+  });
+
   return {
-    normalHours: roundHours(normalMs),
-    after7Hours: roundHours(after7Ms),
-    saturdayHours: roundHours(saturdayMs),
-    unclassifiedHours: roundHours(unclassifiedMs),
-    elapsedHours: roundHours(endMs - startMs),
+    normalMinutes: minutes.normal,
+    after7Minutes: minutes.after7,
+    saturdayMinutes: minutes.saturday,
+    unclassifiedMinutes: minutes.unclassified,
+    elapsedMinutes: minutes.total,
+    normalHours: hoursFromMinutes(minutes.normal),
+    after7Hours: hoursFromMinutes(minutes.after7),
+    saturdayHours: hoursFromMinutes(minutes.saturday),
+    unclassifiedHours: hoursFromMinutes(minutes.unclassified),
+    elapsedHours: hoursFromMinutes(minutes.total),
   };
 }
 

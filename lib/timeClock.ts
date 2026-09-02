@@ -53,6 +53,11 @@ export const SHIFT_HEADERS = [
   'tutorName',
   'clockIn',
   'clockOut',
+  'normalMinutes',
+  'after7Minutes',
+  'saturdayMinutes',
+  'unclassifiedMinutes',
+  'elapsedMinutes',
   'normalHours',
   'after7Hours',
   'saturdayHours',
@@ -112,6 +117,14 @@ export const ADJUSTMENT_HEADERS = [
   'newClockOut',
   'oldStatus',
   'newStatus',
+  'oldNormalMinutes',
+  'newNormalMinutes',
+  'oldAfter7Minutes',
+  'newAfter7Minutes',
+  'oldSaturdayMinutes',
+  'newSaturdayMinutes',
+  'oldUnclassifiedMinutes',
+  'newUnclassifiedMinutes',
   'oldNormalHours',
   'newNormalHours',
   'oldAfter7Hours',
@@ -140,6 +153,11 @@ export type TimeClockShift = {
   tutorName: string;
   clockIn: string;
   clockOut: string;
+  normalMinutes: number;
+  after7Minutes: number;
+  saturdayMinutes: number;
+  unclassifiedMinutes: number;
+  elapsedMinutes: number;
   normalHours: number;
   after7Hours: number;
   saturdayHours: number;
@@ -199,6 +217,14 @@ export type TimeClockAdjustment = {
   newClockOut: string;
   oldStatus: string;
   newStatus: string;
+  oldNormalMinutes: number | '';
+  newNormalMinutes: number | '';
+  oldAfter7Minutes: number | '';
+  newAfter7Minutes: number | '';
+  oldSaturdayMinutes: number | '';
+  newSaturdayMinutes: number | '';
+  oldUnclassifiedMinutes: number | '';
+  newUnclassifiedMinutes: number | '';
   oldNormalHours: number | '';
   newNormalHours: number | '';
   oldAfter7Hours: number | '';
@@ -529,6 +555,11 @@ export function createClockEvent(
 
 function emptyHours(): PaidHours {
   return {
+    normalMinutes: 0,
+    after7Minutes: 0,
+    saturdayMinutes: 0,
+    unclassifiedMinutes: 0,
+    elapsedMinutes: 0,
     normalHours: 0,
     after7Hours: 0,
     saturdayHours: 0,
@@ -560,6 +591,11 @@ function recalculateShift(shift: TimeClockShift) {
   const startMs = instant(shift.clockIn);
   const endMs = instant(shift.clockOut);
   const paid = splitPaidHours(startMs, endMs);
+  shift.normalMinutes = paid.normalMinutes;
+  shift.after7Minutes = paid.after7Minutes;
+  shift.saturdayMinutes = paid.saturdayMinutes;
+  shift.unclassifiedMinutes = paid.unclassifiedMinutes;
+  shift.elapsedMinutes = paid.elapsedMinutes;
   shift.normalHours = paid.normalHours;
   shift.after7Hours = paid.after7Hours;
   shift.saturdayHours = paid.saturdayHours;
@@ -644,6 +680,14 @@ function adjustmentFrom(
     newClockOut: after.clockOut,
     oldStatus: before?.status || '',
     newStatus: after.status,
+    oldNormalMinutes: before?.normalMinutes ?? '',
+    newNormalMinutes: after.normalMinutes,
+    oldAfter7Minutes: before?.after7Minutes ?? '',
+    newAfter7Minutes: after.after7Minutes,
+    oldSaturdayMinutes: before?.saturdayMinutes ?? '',
+    newSaturdayMinutes: after.saturdayMinutes,
+    oldUnclassifiedMinutes: before?.unclassifiedMinutes ?? '',
+    newUnclassifiedMinutes: after.unclassifiedMinutes,
     oldNormalHours: before?.normalHours ?? '',
     newNormalHours: after.normalHours,
     oldAfter7Hours: before?.after7Hours ?? '',
@@ -1404,6 +1448,11 @@ export function publicShiftSnapshot(shift: TimeClockShift | null) {
 }
 
 export type RangeShift = TimeClockShift & {
+  rangeNormalMinutes: number;
+  rangeAfter7Minutes: number;
+  rangeSaturdayMinutes: number;
+  rangeUnclassifiedMinutes: number;
+  rangeElapsedMinutes: number;
   rangeNormalHours: number;
   rangeAfter7Hours: number;
   rangeSaturdayHours: number;
@@ -1417,6 +1466,11 @@ export type TutorPayrollSummary = {
   tutorId: string;
   tutorName: string;
   shifts: number;
+  normalMinutes: number;
+  after7Minutes: number;
+  saturdayMinutes: number;
+  unclassifiedMinutes: number;
+  totalMinutes: number;
   normalHours: number;
   after7Hours: number;
   saturdayHours: number;
@@ -1467,6 +1521,11 @@ export function buildPayrollRange(options: {
     }
     rows.push({
       ...shift,
+      rangeNormalMinutes: rangeHours.normalMinutes,
+      rangeAfter7Minutes: rangeHours.after7Minutes,
+      rangeSaturdayMinutes: rangeHours.saturdayMinutes,
+      rangeUnclassifiedMinutes: rangeHours.unclassifiedMinutes,
+      rangeElapsedMinutes: rangeHours.elapsedMinutes,
       rangeNormalHours: rangeHours.normalHours,
       rangeAfter7Hours: rangeHours.after7Hours,
       rangeSaturdayHours: rangeHours.saturdayHours,
@@ -1486,6 +1545,11 @@ export function buildPayrollRange(options: {
       tutorId: row.tutorId,
       tutorName: row.tutorName,
       shifts: 0,
+      normalMinutes: 0,
+      after7Minutes: 0,
+      saturdayMinutes: 0,
+      unclassifiedMinutes: 0,
+      totalMinutes: 0,
       normalHours: 0,
       after7Hours: 0,
       saturdayHours: 0,
@@ -1494,22 +1558,22 @@ export function buildPayrollRange(options: {
       reviewCount: 0,
     };
     current.shifts += 1;
-    current.normalHours += row.rangeNormalHours;
-    current.after7Hours += row.rangeAfter7Hours;
-    current.saturdayHours += row.rangeSaturdayHours;
-    current.unclassifiedHours += row.rangeUnclassifiedHours;
-    current.totalHours += row.rangeElapsedHours;
+    current.normalMinutes += row.rangeNormalMinutes;
+    current.after7Minutes += row.rangeAfter7Minutes;
+    current.saturdayMinutes += row.rangeSaturdayMinutes;
+    current.unclassifiedMinutes += row.rangeUnclassifiedMinutes;
+    current.totalMinutes += row.rangeElapsedMinutes;
     if (row.reviewFlags.length) current.reviewCount += 1;
     summaryMap.set(key, current);
   }
   const summary = Array.from(summaryMap.values())
     .map((row) => ({
       ...row,
-      normalHours: rounded(row.normalHours),
-      after7Hours: rounded(row.after7Hours),
-      saturdayHours: rounded(row.saturdayHours),
-      unclassifiedHours: rounded(row.unclassifiedHours),
-      totalHours: rounded(row.totalHours),
+      normalHours: rounded(row.normalMinutes / 60),
+      after7Hours: rounded(row.after7Minutes / 60),
+      saturdayHours: rounded(row.saturdayMinutes / 60),
+      unclassifiedHours: rounded(row.unclassifiedMinutes / 60),
+      totalHours: rounded(row.totalMinutes / 60),
     }))
     .sort((first, second) => first.tutorName.localeCompare(second.tutorName));
 

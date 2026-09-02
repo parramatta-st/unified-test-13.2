@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { hasWrittenOverrideReason } from '../lib/timeClockValidation';
 
 type ShiftSnapshot = {
   shiftId: string;
@@ -190,6 +191,10 @@ export default function TimeClockButton() {
 
   async function act() {
     if (!target || busy) return;
+    if (override && !hasWrittenOverrideReason(overrideReason)) {
+      setError('Enter a written reason for the admin location override.');
+      return;
+    }
     setBusy(true);
     setError('');
     setMessage('');
@@ -245,12 +250,36 @@ export default function TimeClockButton() {
       setNotes('');
       setOverride(false);
       setOverrideReason('');
-      await load();
+      const completedAction = action;
+      const completedTarget = target;
+      const returnedShift = json.shift as ShiftSnapshot | null;
+      setState((current) => {
+        const isSelf =
+          completedTarget.toLowerCase() === String(current.tutor || '').toLowerCase();
+        const remainingActiveShifts = (current.activeShifts || []).filter(
+          (shift) =>
+            shift.tutorName.toLowerCase() !== completedTarget.toLowerCase(),
+        );
+        return {
+          ...current,
+          activeShift: isSelf
+            ? completedAction === 'clock_in'
+              ? returnedShift
+              : null
+            : current.activeShift,
+          activeShifts: current.isAdmin
+            ? completedAction === 'clock_in' && returnedShift
+              ? [returnedShift, ...remainingActiveShifts]
+              : remainingActiveShifts
+            : current.activeShifts,
+        };
+      });
       window.dispatchEvent(new CustomEvent('st-time-clock-refresh'));
       window.setTimeout(() => {
         setOpen(false);
         setMessage('');
-      }, 1_500);
+      }, 650);
+      void load();
     } catch (actionError: any) {
       if (response && response.status < 500) pendingRequest.current = null;
       setLocationPhase('error');
@@ -279,7 +308,6 @@ export default function TimeClockButton() {
     loading ||
     !state.config?.sheets ||
     (!state.config?.geofence && !override) ||
-    (override && overrideReason.trim().length < 8) ||
     !target;
 
   return (
@@ -445,7 +473,11 @@ export default function TimeClockButton() {
                       className="input clock-input clock-override-reason"
                       maxLength={500}
                       value={overrideReason}
-                      onChange={(event) => setOverrideReason(event.target.value)}
+                      onChange={(event) => {
+                        setOverrideReason(event.target.value);
+                        if (error) setError('');
+                      }}
+                      aria-invalid={override && !!error && !hasWrittenOverrideReason(overrideReason)}
                       placeholder="e.g. Tutor's phone could not acquire GPS; I verified they are at the centre."
                     />
                   </>
@@ -522,7 +554,7 @@ export default function TimeClockButton() {
         .clock-status{display:flex;gap:.7rem;align-items:center;margin:1rem 0;padding:.8rem;border-radius:15px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035)}.clock-status.on{border-color:rgba(52,211,153,.24);background:rgba(16,185,129,.06)}.status-dot{width:10px;height:10px;border-radius:50%;background:#657084;box-shadow:0 0 0 5px rgba(101,112,132,.1)}.on .status-dot{background:#34d399;box-shadow:0 0 0 5px rgba(52,211,153,.1)}.clock-status strong{font-size:.88rem}.clock-status div div{font-size:.74rem;color:#91a0b5;margin-top:.1rem}
         .clock-location,.clock-check{display:flex;gap:.7rem;align-items:flex-start}.clock-location{margin-top:1rem;padding:.8rem;border:1px solid rgba(49,200,255,.14);border-radius:14px;background:rgba(49,200,255,.045);font-size:.75rem;color:#aab5c5}.clock-location.verified{border-color:rgba(52,211,153,.25);background:rgba(52,211,153,.06)}.clock-location.error{border-color:rgba(239,68,68,.2)}.clock-location>span{font-size:1.2rem;color:#62d8ff}.clock-location strong,.clock-check strong{font-size:.8rem;display:block;color:#dce4ee}.clock-location small,.clock-check small{display:block;color:#8f9bae;font-size:.7rem;line-height:1.4;margin-top:.15rem}.clock-admin-box{margin-top:1rem;padding:.8rem;border:1px solid rgba(255,170,75,.15);border-radius:14px;background:rgba(255,137,28,.04)}.clock-check{cursor:pointer}.clock-check input{margin-top:.15rem;accent-color:#ff8b2b}
         .clock-alert{margin-top:.8rem;padding:.72rem .8rem;border-radius:12px;font-size:.78rem;border:1px solid}.clock-alert.success{color:#bbf7d0;background:rgba(34,197,94,.09);border-color:rgba(34,197,94,.25)}.clock-alert.error{color:#fecaca;background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.25)}.clock-alert.warn{color:#fde68a;background:rgba(245,158,11,.07);border-color:rgba(245,158,11,.22)}
-        .clock-actions{display:flex;justify-content:flex-end;gap:.6rem;margin-top:1.1rem;padding-top:1rem;border-top:1px solid rgba(255,255,255,.08)}.clock-main-action{min-width:160px}.clock-main-action.clock-out{background:linear-gradient(135deg,#fb7185,#ef4444)!important;color:white!important}
+        .clock-actions{display:flex;justify-content:flex-end;gap:.6rem;margin-top:1.1rem;padding-top:1rem;border-top:1px solid rgba(255,255,255,.08)}.clock-main-action{min-width:160px}.clock-main-action:disabled{opacity:.55;cursor:not-allowed;transform:none;box-shadow:none}.clock-main-action.clock-out{background:linear-gradient(135deg,#fb7185,#ef4444)!important;color:white!important}
         @media(max-width:560px){.clock-copy small{display:none}.time-clock-trigger{padding-right:.55rem}.clock-modal-backdrop{padding:.5rem}.clock-modal{max-height:calc(100dvh - 1rem);border-radius:20px;padding:1rem}.clock-actions{position:sticky;bottom:-1rem;background:#0b0d12;padding-bottom:.8rem}.clock-actions .btn,.clock-actions .btn-primary{flex:1;min-height:44px}.clock-main-action{min-width:0}}
       `}</style>
     </>

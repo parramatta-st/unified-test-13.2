@@ -22,6 +22,14 @@ function expectHours(
     assert.equal(actual[key as keyof typeof actual], value, key);
   }
   assert.equal(
+    actual.normalMinutes +
+      actual.after7Minutes +
+      actual.saturdayMinutes +
+      actual.unclassifiedMinutes,
+    actual.elapsedMinutes,
+    'integer minute categories must be mutually exclusive and exhaustive',
+  );
+  assert.equal(
     Number(
       (
         actual.normalHours +
@@ -51,6 +59,18 @@ test('splits a Monday 6:30 PM to 7:30 PM shift evenly', () => {
     after7Hours: 0.5,
     saturdayHours: 0,
   });
+});
+
+test('stores payroll as whole minutes and derives display hours from them', () => {
+  const actual = splitPaidHours(
+    ms('2026-08-31T18:30:20+10:00'),
+    ms('2026-08-31T19:30:50+10:00'),
+  );
+  assert.equal(actual.elapsedMinutes, 61);
+  assert.equal(actual.normalMinutes, 30);
+  assert.equal(actual.after7Minutes, 31);
+  assert.equal(actual.normalHours, 0.5);
+  assert.equal(actual.after7Hours, 0.516667);
 });
 
 test('assigns every Saturday hour to Saturday, including after 7 PM', () => {

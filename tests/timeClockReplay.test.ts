@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildPayrollRange,
   createClockEvent,
   replayTimeClockEvents,
   requestFingerprint,
@@ -96,6 +97,23 @@ test('clocks out with server event time and calculates exclusive pay bands', () 
   assert.equal(replay.shifts[0].normalHours, 2);
   assert.equal(replay.shifts[0].after7Hours, 2);
   assert.equal(replay.shifts[0].saturdayHours, 0);
+  assert.equal(replay.shifts[0].normalMinutes, 120);
+  assert.equal(replay.shifts[0].after7Minutes, 120);
+
+  const payroll = buildPayrollRange({
+    state: {
+      ...replay,
+      sourceFingerprint: '',
+      rawEventCount: replay.events.length,
+    },
+    campusKey,
+    startMs: Date.parse('2026-08-30T14:00:00.000Z'),
+    endMs: Date.parse('2026-09-01T14:00:00.000Z'),
+  });
+  assert.equal(payroll.summary[0].normalMinutes, 120);
+  assert.equal(payroll.summary[0].after7Minutes, 120);
+  assert.equal(payroll.summary[0].normalHours, 2);
+  assert.equal(payroll.summary[0].after7Hours, 2);
 });
 
 test('applies one versioned admin edit, audits it, and rejects a stale edit', () => {
