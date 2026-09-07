@@ -302,10 +302,17 @@ export default function SentFeedbackPage() {
       const response = await fetch('/api/inbox-read', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conversationId: conversation.conversationId }),
+        body: JSON.stringify({
+          conversationId: conversation.conversationId,
+          latestInboundAt: conversation.latestInboundAt,
+        }),
       });
       const json = await response.json().catch(() => ({}));
       if (!response.ok || !json.ok) throw new Error(json.error || 'Could not mark the conversation as read.');
+      if (json.stale) {
+        await loadInbox(true);
+        return;
+      }
     } catch (readError: any) {
       setError(readError?.message || 'Could not mark the conversation as read.');
       loadInbox(true);
@@ -314,15 +321,26 @@ export default function SentFeedbackPage() {
     }
   }, [loadInbox, markingRead, unreadTotal]);
 
-  useEffect(() => {
+  // Read status should reflect an explicit admin action. A conversation that is
+  // already open must not be silently marked read when background polling brings
+  // in a newer parent reply. Only clicking/opening an unread row starts the read
+  // timer; a server-side latestInboundAt guard protects the small click race too.
+  useEffect(() => () => {
     if (readTimer.current) clearTimeout(readTimer.current);
-    if (!selected?.isUnread) return;
-    readTimer.current = setTimeout(() => markConversationRead(selected), 650);
-    return () => { if (readTimer.current) clearTimeout(readTimer.current); };
-  }, [selected?.conversationId, selected?.isUnread, markConversationRead]);
+  }, []);
 
   function selectConversation(item: InboxConversation) {
+    if (readTimer.current) {
+      clearTimeout(readTimer.current);
+      readTimer.current = null;
+    }
     setSelectedId(item.id);
+    if (item.isUnread) {
+      readTimer.current = setTimeout(() => {
+        readTimer.current = null;
+        void markConversationRead(item);
+      }, 650);
+    }
   }
 
   function openReplyComposer() {
