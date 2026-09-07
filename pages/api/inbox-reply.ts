@@ -5,6 +5,7 @@ import { requireAdmin } from '../../lib/adminAuth';
 import { findFeedbackConversation, norm, readValue } from '../../lib/feedbackInboxClean';
 import { appendFeedbackMessage, loadFeedbackMessageRows } from '../../lib/logs';
 import { cleanReplySubject } from '../../lib/replyText';
+import { friendlySmtpError, sendMailWithTransientRetry } from '../../lib/smtpRetry';
 
 function headerSafe(value: any) {
   return String(value ?? '').replace(/[\r\n]+/g, ' ').trim();
@@ -96,7 +97,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // A very fast parent response must never be made to look older simply
     // because SMTP delivery/logging completed a few seconds later.
     const timestamp = new Date().toISOString();
-    const info = await transporter.sendMail(mail);
+    const info = await sendMailWithTransientRetry(transporter, mail, {
+      operation: 'portal-reply',
+      campusKey: conversation.campusKey,
+      conversationId,
+    });
     const saved = await appendFeedbackMessage({
       timestamp,
       conversationId,
@@ -136,6 +141,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   } catch (error: any) {
     console.error('inbox-reply error', error);
-    return res.status(500).json({ ok: false, error: error?.message || 'Reply could not be sent.' });
+    const friendly = friendlySmtpError(error);
+    return res.status(friendly.status).json({ ok: false, error: friendly.message });
   }
 }
