@@ -16,12 +16,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!admin.isAdmin) return res.status(403).json({ ok: false, error: 'Admin access required' });
 
   const conversationId = norm(req.body?.conversationId);
+  const observedLatestInboundAt = norm(req.body?.latestInboundAt);
   if (!conversationId) return res.status(400).json({ ok: false, error: 'Missing conversationId' });
 
   try {
     const conversation = await findFeedbackConversation(admin, conversationId);
     if (!conversation) return res.status(404).json({ ok: false, error: 'Conversation not found for this centre.' });
     if (!conversation.isUnread) return res.status(200).json({ ok: true, alreadyRead: true, conversationId });
+
+    // The Inbox can refresh while an admin is already viewing a conversation.
+    // If a newer parent reply arrived after the admin clicked/opened it, refuse
+    // to acknowledge that newer reply with the stale click. The client reloads
+    // and leaves the new message unread until the admin explicitly opens it.
+    if (
+      observedLatestInboundAt &&
+      conversation.latestInboundAt &&
+      observedLatestInboundAt !== conversation.latestInboundAt
+    ) {
+      return res.status(200).json({
+        ok: true,
+        stale: true,
+        conversationId,
+        latestInboundAt: conversation.latestInboundAt,
+      });
+    }
 
     const timestamp = new Date().toISOString();
     const markerId = `read-${crypto.randomUUID()}`;
