@@ -14,10 +14,13 @@ export default function Header(){
     try {
       const response = await fetch('/api/inbox-unread', { cache: 'no-store' });
       const json = await response.json().catch(() => ({}));
-      if (response.ok && json?.ok) setUnreadCount(Math.max(0, Number(json.unreadTotal || 0)));
-      else setUnreadCount(0);
+      if (response.ok && json?.ok) {
+        setUnreadCount(Math.max(0, Number(json.unreadTotal || 0)));
+      }
+      // Keep the last known count on transient Sheets/API failures. A failed
+      // poll must never erase a real unread badge by pretending the count is 0.
     } catch {
-      setUnreadCount(0);
+      // Preserve the previous unread count and retry on the next interval.
     }
   }, []);
 
@@ -32,7 +35,7 @@ export default function Header(){
       const detail = (event as CustomEvent)?.detail;
       if (detail && Number.isFinite(Number(detail.unreadTotal))) {
         setUnreadCount(Math.max(0, Number(detail.unreadTotal)));
-      } else {
+      } else if (router.pathname !== '/sent-feedback') {
         loadUnread();
       }
     };
@@ -48,8 +51,14 @@ export default function Header(){
         setIsAdmin(admin);
         try { localStorage.setItem('st_is_admin', admin ? '1' : '0'); } catch {}
         if (admin) {
-          loadUnread();
-          interval = window.setInterval(loadUnread, 30000);
+          // The Inbox page already polls /api/sent-feedback and dispatches its
+          // unread total to the header. Running a second 30-second poll here
+          // doubled Google Sheets reads for no benefit and contributed to quota
+          // failures, so only poll independently on other portal pages.
+          if (router.pathname !== '/sent-feedback') {
+            loadUnread();
+            interval = window.setInterval(loadUnread, 30000);
+          }
         } else {
           setUnreadCount(0);
         }
@@ -67,7 +76,7 @@ export default function Header(){
       if (interval) window.clearInterval(interval);
       window.removeEventListener('st-inbox-refresh', refreshFromEvent);
     };
-  },[loadUnread]);
+  },[loadUnread, router.pathname]);
 
   const hideNav = router.pathname === '/login';
 
