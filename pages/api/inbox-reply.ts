@@ -92,8 +92,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       mail.references = conversation.messageId;
     }
 
-    const info = await transporter.sendMail(mail);
+    // Capture the acknowledgement time before handing the message to Gmail.
+    // A very fast parent response must never be made to look older simply
+    // because SMTP delivery/logging completed a few seconds later.
     const timestamp = new Date().toISOString();
+    const info = await transporter.sendMail(mail);
     const saved = await appendFeedbackMessage({
       timestamp,
       conversationId,
