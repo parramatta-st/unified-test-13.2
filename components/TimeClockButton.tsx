@@ -314,7 +314,10 @@ export default function TimeClockButton() {
               accuracy: position.coords.accuracy,
             }),
           (positionError) => reject(new Error(locationError(positionError))),
-          { enableHighAccuracy: true, timeout: 15_000, maximumAge: 10_000 },
+          // Never reuse a cached reading for a payroll action. A fresh,
+          // high-accuracy fix is especially important on centre Wi-Fi where a
+          // desktop browser may otherwise return an older coarse position.
+          { enableHighAccuracy: true, timeout: 20_000, maximumAge: 0 },
         );
       },
     );

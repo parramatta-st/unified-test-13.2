@@ -347,7 +347,7 @@ export function timeClockConfigured() {
     radiusM: boundedNumber(process.env.TIME_CLOCK_RADIUS_METRES, 150, 20, 5_000),
     maxAccuracyM: boundedNumber(
       process.env.TIME_CLOCK_MAX_ACCURACY_METRES,
-      200,
+      350,
       10,
       5_000,
     ),

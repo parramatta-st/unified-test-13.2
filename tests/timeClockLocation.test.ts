@@ -12,7 +12,7 @@ test('geofence is calculated server-side from coordinates and accuracy', () => {
   process.env.TIME_CLOCK_LATITUDE = '0';
   process.env.TIME_CLOCK_LONGITUDE = '0';
   process.env.TIME_CLOCK_RADIUS_METRES = '150';
-  process.env.TIME_CLOCK_MAX_ACCURACY_METRES = '200';
+  process.env.TIME_CLOCK_MAX_ACCURACY_METRES = '350';
   try {
     const atCentre = verifyLocation({
       latitude: 0,
@@ -32,10 +32,18 @@ test('geofence is calculated server-side from coordinates and accuracy', () => {
     assert.equal(outside.code, 'OUTSIDE_GEOFENCE');
     assert.ok((outside.distanceM || 0) > 1_000);
 
+    const coarseButUsableAtCentre = verifyLocation({
+      latitude: 0,
+      longitude: 0,
+      accuracy: 263,
+    });
+    assert.equal(coarseButUsableAtCentre.ok, true);
+    assert.equal(coarseButUsableAtCentre.code, 'LOCATION_VERIFIED');
+
     const inaccurate = verifyLocation({
       latitude: 0,
       longitude: 0,
-      accuracy: 250,
+      accuracy: 351,
     });
     assert.equal(inaccurate.ok, false);
     assert.equal(inaccurate.code, 'LOCATION_INACCURATE');
