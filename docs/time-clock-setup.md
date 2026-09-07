@@ -70,7 +70,7 @@ centre. The configured centre coordinates are never needed by client code.
 ## Optional safety and tab settings
 
 ```env
-TIME_CLOCK_MAX_ACCURACY_METRES=200
+TIME_CLOCK_MAX_ACCURACY_METRES=350
 TIME_CLOCK_LONG_SHIFT_HOURS=16
 TIME_CLOCK_OPEN_SHIFT_ALERT_HOURS=12
 TIME_CLOCK_EVENTS_SHEET_NAME=time_clock_events
@@ -78,8 +78,10 @@ TIME_CLOCK_SHIFTS_SHEET_NAME=time_clock_shifts
 TIME_CLOCK_ADJUSTMENTS_SHEET_NAME=time_clock_adjustments
 ```
 
-- GPS readings less precise than `TIME_CLOCK_MAX_ACCURACY_METRES` are rejected
-  unless an admin uses a recorded override.
+- GPS readings less precise than `TIME_CLOCK_MAX_ACCURACY_METRES` are rejected unless
+  an admin uses a recorded override. The production value of 350 m accommodates coarse
+  indoor/centre-Wi-Fi readings while the reported coordinates must still be inside the
+  separate 150 m centre radius.
 - Completed shifts at or above `TIME_CLOCK_LONG_SHIFT_HOURS` are flagged.
 - Open shifts at or above `TIME_CLOCK_OPEN_SHIFT_ALERT_HOURS` are flagged.
 - The starting geofence radius is 150 metres and remains server-configurable.
