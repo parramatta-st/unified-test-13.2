@@ -33,6 +33,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const fallbackSender = norm(req.query.sender);
   const fallbackSubject = norm(req.query.subject);
   const fallbackLookup = !relayToken && !!(fallbackRoute && fallbackSender && fallbackSubject);
+  const lookupRoute = relayToken ? relayRouteKeyFromToken(relayToken) : fallbackRoute;
 
   if (!relayToken && !fallbackLookup) {
     return res.status(400).json({ ok: false, error: 'Missing relay token or fallback centre-reply lookup fields.' });
@@ -42,7 +43,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // route by the campus prefix encoded in the relay token. Fallback lookups
   // route by an explicit campus route derived from the incoming centre email.
   if (relayHubMode()) {
-    const lookupRoute = relayToken ? relayRouteKeyFromToken(relayToken) : fallbackRoute;
     const target = relayToken
       ? relayHubTargetForToken(relayToken)
       : relayHubTargetForRoute(fallbackRoute);
@@ -96,7 +96,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       conversation = fallback.conversation;
     }
 
-    if (!conversation) return res.status(404).json({ ok: false, error: 'Relay conversation not found.' });
+    if (!conversation) {
+      console.warn('reply-relay lookup miss without hub routing', {
+        lookupRoute,
+        configuredRoutes: Object.keys(relayHubRoutes()).sort(),
+        hubMode: relayHubMode(),
+        tokenShapeValid: relayToken ? !!relayRouteKeyFromToken(relayToken) : undefined,
+      });
+      return res.status(404).json({ ok: false, error: 'Relay conversation not found.' });
+    }
 
     const latestParentReply = await latestParentReplyForConversation(conversation.conversationId);
     const gmailThreadId = latestParentReply ? readValue(latestParentReply, 'gmailThreadId', 'Gmail Thread ID') : '';
