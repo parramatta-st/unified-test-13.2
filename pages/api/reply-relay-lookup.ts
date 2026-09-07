@@ -6,8 +6,10 @@ import {
   norm,
   readValue,
   relayHubMode,
+  relayHubRoutes,
   relayHubTargetForRoute,
   relayHubTargetForToken,
+  relayRouteKeyFromToken,
   relaySecretConfigured,
   relaySecretValid,
 } from '../../lib/replyRelay';
@@ -40,10 +42,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // route by the campus prefix encoded in the relay token. Fallback lookups
   // route by an explicit campus route derived from the incoming centre email.
   if (relayHubMode()) {
+    const lookupRoute = relayToken ? relayRouteKeyFromToken(relayToken) : fallbackRoute;
     const target = relayToken
       ? relayHubTargetForToken(relayToken)
       : relayHubTargetForRoute(fallbackRoute);
     if (!target) {
+      console.warn('reply-relay hub route missing', {
+        lookupRoute,
+        configuredRoutes: Object.keys(relayHubRoutes()).sort(),
+        tokenShapeValid: relayToken ? !!relayRouteKeyFromToken(relayToken) : undefined,
+      });
       return res.status(404).json({ ok: false, error: 'No relay hub route is configured for this conversation.' });
     }
     try {
@@ -61,6 +69,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         cache: 'no-store',
       });
       const text = await upstream.text();
+      if (!upstream.ok) {
+        console.warn('reply-relay hub upstream lookup failed', {
+          lookupRoute,
+          target,
+          status: upstream.status,
+        });
+      }
       res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json; charset=utf-8');
       return res.status(upstream.status).send(text);
     } catch (error: any) {
