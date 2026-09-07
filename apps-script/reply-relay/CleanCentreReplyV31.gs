@@ -122,7 +122,10 @@ function handleCentreReplyCleanV31_(cfg, relayToken, conversation, message) {
     sourceMessageId: message.getId(),
     sendStatus: 'sent_to_parent',
     attachmentNames: delivered.attachmentNames,
-    timestamp: new Date().toISOString(),
+    // Use the original centre Gmail message time, not the later relay-processing
+    // time. Otherwise a parent who replies within the same polling window can
+    // look older than the centre reply and be incorrectly treated as read.
+    timestamp: message.getDate().toISOString(),
   });
 }
 
