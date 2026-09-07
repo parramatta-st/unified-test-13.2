@@ -5,6 +5,7 @@ import { getAuthStatus } from '../../lib/auth';
 import { loadMembers } from '../../lib/members';
 import { appendFeedbackLog } from '../../lib/logs';
 import { relayRouteKey } from '../../lib/replyRelay';
+import { friendlySmtpError, sendMailWithTransientRetry } from '../../lib/smtpRetry';
 import { defaultCampusKey } from '../../lib/tutorConfig';
 
 function norm(v: any) { return String(v || '').trim(); }
@@ -247,7 +248,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Use an explicit mailbox string so the RFC From header always contains
     // the professional campus display name as well as the campus alias.
     const safeFromName = fromName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    const info = await transporter.sendMail({
+    const mail = {
       from: `"${safeFromName}" <${fromAddress}>`,
       to: toEmail,
       replyTo,
@@ -259,6 +260,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         'X-ST-Campus-Key': campusKey,
         'X-ST-Relay-Enabled': relayEnabled ? '1' : '0',
       },
+    };
+    const info = await sendMailWithTransientRetry(transporter, mail, {
+      operation: 'send-feedback',
+      campusKey,
+      conversationId,
     });
 
     const payload = {
@@ -287,6 +293,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       sendStatus: 'failed',
     };
     const logResult = await persistFeedbackLog(failedPayload).catch(() => ({ logged: 'not-saved', saved: false }));
-    return res.status(500).json({ ok: false, error: e?.message || 'send failed', logged: logResult.logged });
+    const friendly = friendlySmtpError(e);
+    return res.status(friendly.status).json({ ok: false, error: friendly.message, logged: logResult.logged });
   }
 }
