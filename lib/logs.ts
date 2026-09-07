@@ -78,23 +78,32 @@ export async function loadFeedbackLogRows() {
 export async function loadFeedbackMessageRows() {
   const sheetName = feedbackMessagesSheetName();
   const spreadsheetId = spreadsheetIdFor('FEEDBACK_MESSAGES');
-
-  // feedback_messages is an auxiliary inbox/event stream. Older centres can have
-  // years of feedback rows without this newer tab because it is only created when
-  // the first relay/read event is written. Reading a missing tab through the
-  // Sheets values API returns the misleading "Unable to parse range" error.
-  // Ensure the tab exists before reading so an untouched centre simply has an
-  // empty reply history rather than showing an error banner in the inbox.
-  if (privateSheetsConfigured()) {
-    await ensureSheet(sheetName, spreadsheetId);
-  }
-
-  return loadRowsPrivateFirst({
+  const load = () => loadRowsPrivateFirst({
     kind: 'FEEDBACK_MESSAGES',
     sheetName,
     csvUrls: [],
     spreadsheetId,
   });
+
+  // feedback_messages is an auxiliary inbox/event stream. Once the tab exists,
+  // reading it should be a single Sheets values request. The previous version
+  // called ensureSheet() before every read, which added a spreadsheet metadata
+  // request every time the Inbox/header polled and contributed heavily to the
+  // per-user Google Sheets read quota. Only create the tab lazily when a real
+  // missing-range response proves an older centre does not have it yet.
+  let loaded = await load();
+  const missingSheet = !!(
+    privateSheetsConfigured() &&
+    loaded.warning &&
+    /unable to parse range|range[^\n]*not found|sheet[^\n]*(?:not found|does not exist)/i.test(String(loaded.warning))
+  );
+
+  if (missingSheet) {
+    await ensureSheet(sheetName, spreadsheetId);
+    loaded = await load();
+  }
+
+  return loaded;
 }
 
 export async function loadPrintLogRows() {
