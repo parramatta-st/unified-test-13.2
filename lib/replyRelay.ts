@@ -53,13 +53,40 @@ export function relayRouteKeyFromToken(relayToken: string) {
 
 type RelayHubRoutes = Record<string, string>;
 
+// These are public Vercel production URLs, not secrets. Keeping the current
+// centre routes in code means a central-relay deployment cannot silently stop
+// routing replies just because a shared Vercel env link was omitted. The env
+// map still overrides or extends these defaults for future centres.
+const BUILT_IN_RELAY_HUB_ROUTES: RelayHubRoutes = {
+  parramatta: 'https://unified-test-13-2.vercel.app',
+  stp: 'https://unified-test-13-2.vercel.app',
+  greenvalley: 'https://stgv-unified-site.vercel.app',
+  stgv: 'https://stgv-unified-site.vercel.app',
+  mtgravatteast: 'https://stmg-unified-site.vercel.app',
+  stmg: 'https://stmg-unified-site.vercel.app',
+  bankstown: 'https://stbankstown-unified-site.vercel.app',
+  ryde: 'https://stryde-unified-site.vercel.app',
+};
+
+function isCentralRelayProject() {
+  const productionHost = lower(process.env.VERCEL_PROJECT_PRODUCTION_URL || '');
+  const deploymentHost = lower(process.env.VERCEL_URL || '');
+  return productionHost.includes('st-feedback-relay') || deploymentHost.includes('st-feedback-relay');
+}
+
 export function relayHubRoutes(): RelayHubRoutes {
+  // This repository is deployed to every centre as well as the central relay.
+  // Never let a centre deployment become a relay hub merely because a shared
+  // REPLY_RELAY_HUB_ROUTES variable was linked too broadly in Vercel.
+  if (!isCentralRelayProject()) return {};
+
+  const out: RelayHubRoutes = { ...BUILT_IN_RELAY_HUB_ROUTES };
   const raw = norm(process.env.REPLY_RELAY_HUB_ROUTES);
-  if (!raw) return {};
+  if (!raw) return out;
+
   try {
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    const out: RelayHubRoutes = {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return out;
     for (const [key, value] of Object.entries(parsed)) {
       const route = relayRouteKey(key);
       const url = norm(value).replace(/\/+$/, '');
@@ -68,7 +95,8 @@ export function relayHubRoutes(): RelayHubRoutes {
     }
     return out;
   } catch {
-    return {};
+    // A malformed optional override must not take the whole reply relay down.
+    return out;
   }
 }
 
