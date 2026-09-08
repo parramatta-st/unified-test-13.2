@@ -13,6 +13,7 @@ import {
   durationHours,
   intervalsOverlap,
   splitPaidHours,
+  sydneyDateKey,
   type PaidHours,
 } from './timeClockCore';
 
@@ -829,7 +830,7 @@ function applyEvent(
   if (event.actorRole !== 'admin') {
     return rejected('ADMIN_REQUIRED', 'Only an admin can apply this event.');
   }
-  if (!event.reason) {
+  if (action !== 'admin_create' && !event.reason) {
     return rejected('REASON_REQUIRED', 'A written reason is required.');
   }
 
@@ -883,10 +884,10 @@ function applyEvent(
       clockOutPerformedAs: event.clockOut ? 'admin' : '',
       clockInNotes: event.notes,
       clockOutNotes: event.clockOut ? event.notes : '',
-      clockInAdminOverride: true,
-      clockOutAdminOverride: !!event.clockOut,
-      clockInOverrideReason: event.reason,
-      clockOutOverrideReason: event.clockOut ? event.reason : '',
+      clockInAdminOverride: truthy(event.adminOverride),
+      clockOutAdminOverride: !!event.clockOut && truthy(event.adminOverride),
+      clockInOverrideReason: event.overrideReason,
+      clockOutOverrideReason: event.clockOut ? event.overrideReason : '',
       clockInRequestId: event.requestId,
       clockOutRequestId: event.clockOut ? event.requestId : '',
       createdAt: event.occurredAt,
@@ -1001,10 +1002,14 @@ function calculateReviewFlags(
   openShiftAlertHours: number,
 ) {
   for (const shift of shifts) {
+    if (shift.status === 'voided') {
+      shift.reviewFlags = [];
+      continue;
+    }
     const flags = new Set<string>();
     const startMs = instant(shift.clockIn);
     const endMs = shift.clockOut ? instant(shift.clockOut) : Number.NaN;
-    if (!Number.isFinite(startMs) || (shift.clockOut && !Number.isFinite(endMs))) {
+    if (!Number.isFinite(startMs) || (shift.clockOut && (!Number.isFinite(endMs) || endMs <= startMs))) {
       flags.add('invalid_timestamps');
     }
     if (Number.isFinite(startMs) && startMs > nowMs + 5 * 60_000) {
@@ -1022,20 +1027,24 @@ function calculateReviewFlags(
     ) {
       flags.add('long_shift');
     }
+    const effectiveEnd = shift.status === 'active' ? nowMs : endMs;
+    if (Number.isFinite(startMs) && Number.isFinite(effectiveEnd) && effectiveEnd > startMs &&
+      sydneyDateKey(startMs) !== sydneyDateKey(effectiveEnd)) {
+      flags.add('crosses_midnight');
+    }
     if (shift.unclassifiedHours > 0) flags.add('sunday_unclassified');
-    if (shift.clockInAdminOverride) flags.add('clock_in_location_override');
-    if (shift.clockOutAdminOverride) flags.add('clock_out_location_override');
-    if (!shift.clockInLocationVerified && !shift.clockInAdminOverride) {
+    // Manual entries and recorded overrides are audit information, not errors.
+    if (!shift.manual && !shift.clockInLocationVerified && !shift.clockInAdminOverride) {
       flags.add('clock_in_location_unverified');
     }
     if (
       shift.status === 'completed' &&
+      !shift.manual &&
       !shift.clockOutLocationVerified &&
       !shift.clockOutAdminOverride
     ) {
       flags.add('clock_out_location_unverified');
     }
-    if (shift.manual) flags.add('manual_shift');
     shift.reviewFlags = Array.from(flags);
   }
 
@@ -1560,7 +1569,8 @@ export function buildPayrollRange(options: {
 
   const summaryMap = new Map<string, TutorPayrollSummary>();
   for (const row of rows) {
-    if (row.status !== 'completed' || row.rangeElapsedHours <= 0) continue;
+    const completed = row.status === 'completed' && row.rangeElapsedHours > 0;
+    if (!completed && !(row.status === 'active' && row.reviewFlags.length)) continue;
     const key = `${lower(row.campusKey)}|${row.tutorId || lower(row.tutorName)}`;
     const current = summaryMap.get(key) || {
       campusKey: row.campusKey,
@@ -1579,7 +1589,7 @@ export function buildPayrollRange(options: {
       totalHours: 0,
       reviewCount: 0,
     };
-    current.shifts += 1;
+    if (completed) current.shifts += 1;
     current.normalMinutes += row.rangeNormalMinutes;
     current.after7Minutes += row.rangeAfter7Minutes;
     current.saturdayMinutes += row.rangeSaturdayMinutes;

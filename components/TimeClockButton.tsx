@@ -9,6 +9,7 @@ import {
   type TimeClockShiftSnapshot,
 } from '../lib/timeClockClientState';
 import { hasWrittenOverrideReason } from '../lib/timeClockValidation';
+import TimeClockShiftDialog from './TimeClockShiftDialog';
 
 type ShiftSnapshot = TimeClockShiftSnapshot;
 
@@ -180,6 +181,8 @@ export default function TimeClockButton() {
   const initialStatus = rememberedStatusForCurrentSession();
   const [state, setState] = useState<ClockState>(() => statusState(initialStatus));
   const [open, setOpen] = useState(false);
+  const [manualEntryOpen, setManualEntryOpen] = useState(false);
+  const [manualEntryMessage, setManualEntryMessage] = useState('');
   const [loading, setLoading] = useState(!initialStatus);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -253,20 +256,33 @@ export default function TimeClockButton() {
     const tickId = window.setInterval(() => setTick((value) => value + 1), 30_000);
     const refreshId = window.setInterval(() => void load(true), 120_000);
     const onFocus = () => void load(true);
+    const onAdminChange = () => {
+      invalidateSharedStateRequest();
+      stateRevision.current += 1;
+      void load(true);
+    };
     const onVisibility = () => {
       if (document.visibilityState === 'visible') void load(true);
     };
     window.addEventListener('focus', onFocus);
+    window.addEventListener('st-time-clock-refresh', onAdminChange);
     window.addEventListener('storage', onStorage);
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       window.clearInterval(tickId);
       window.clearInterval(refreshId);
       window.removeEventListener('focus', onFocus);
+      window.removeEventListener('st-time-clock-refresh', onAdminChange);
       window.removeEventListener('storage', onStorage);
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [load]);
+
+  useEffect(() => {
+    if (!manualEntryMessage) return;
+    const timeout = window.setTimeout(() => setManualEntryMessage(''), 6_000);
+    return () => window.clearTimeout(timeout);
+  }, [manualEntryMessage]);
 
   useEffect(() => {
     if (!open) return;
@@ -578,6 +594,15 @@ export default function TimeClockButton() {
               </div>
             </div>
 
+            {state.isAdmin && (
+              <div className="clock-manual-entry">
+                <button type="button" className="btn" disabled={busy || !state.config?.sheets}
+                  onClick={() => { setOpen(false); setManualEntryOpen(true); }}>
+                  + Add manual entry
+                </button>
+              </div>
+            )}
+
             <label className="clock-label" htmlFor="clock-notes">
               Notes <span>(optional)</span>
             </label>
@@ -697,7 +722,24 @@ export default function TimeClockButton() {
         </div>
       ), document.body)}
 
+      {manualEntryOpen && state.isAdmin && (
+        <TimeClockShiftDialog
+          mode="create"
+          tutors={state.tutors || []}
+          initialTutor={target || state.tutor}
+          onClose={() => { setManualEntryOpen(false); setOpen(true); }}
+          onSaved={(result) => {
+            setManualEntryOpen(false);
+            setManualEntryMessage(result.message);
+          }}
+        />
+      )}
+      {manualEntryMessage && typeof document !== 'undefined' && createPortal(
+        <div className="clock-entry-toast" role="status">✓ {manualEntryMessage}</div>, document.body,
+      )}
+
       <style jsx>{`
+        .clock-manual-entry{display:flex;justify-content:flex-end;margin-top:.75rem}.clock-manual-entry button{font-size:.8rem;min-height:44px;color:#7dd3fc}.clock-entry-toast{position:fixed;z-index:5300;bottom:max(1rem,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);width:max-content;max-width:calc(100vw - 2rem);padding:.85rem 1rem;border-radius:14px;background:#102c22;border:1px solid #34d399;color:#bbf7d0;font-size:.85rem;box-shadow:0 12px 40px #0008}
         .time-clock-trigger{display:flex;align-items:center;gap:.5rem;flex:0 0 auto;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.055);color:#e9eef6;border-radius:999px;padding:.4rem .72rem .4rem .46rem;cursor:pointer;white-space:nowrap;box-shadow:inset 0 1px 0 rgba(255,255,255,.08);transition:background .18s ease,border-color .18s ease,transform .18s ease}.time-clock-trigger:hover{background:rgba(255,255,255,.1);transform:translateY(-1px)}.time-clock-trigger:focus-visible{outline:2px solid #31c8ff;outline-offset:2px}.time-clock-trigger.is-active{border-color:rgba(52,211,153,.42);background:rgba(16,185,129,.1)}
         .clock-symbol{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:rgba(49,200,255,.13);color:#7cddfb}.clock-symbol svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.is-active .clock-symbol{background:rgba(52,211,153,.18);color:#86efac}.clock-copy{display:flex;flex-direction:column;align-items:flex-start;line-height:1.03}.clock-copy strong{font-size:.78rem;font-weight:720}.clock-copy small{font-size:.65rem;color:#91a0b5;margin-top:.16rem}
         .clock-modal-backdrop{position:fixed;inset:0;z-index:5000;background:rgba(0,0,0,.74);backdrop-filter:blur(8px);display:grid;place-items:center;padding:1rem}.clock-modal{width:min(560px,100%);max-height:calc(100dvh - 2rem);overflow:auto;border-radius:24px;border:1px solid rgba(255,255,255,.13);background:radial-gradient(600px 250px at 50% 0%,rgba(49,200,255,.08),transparent 65%),#0b0d12;box-shadow:0 30px 100px rgba(0,0,0,.65);padding:1.25rem}.clock-modal-head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid rgba(255,255,255,.08);padding-bottom:1rem;margin-bottom:1rem}.clock-modal-head h2{font-size:1.55rem;margin:.08rem 0 0;letter-spacing:-.04em}.clock-kicker{text-transform:uppercase;letter-spacing:.13em;font-size:.66rem;color:#8d9aad;font-weight:700}.clock-close{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#dce3ed;width:36px;height:36px;border-radius:50%;font-size:1.3rem;cursor:pointer}

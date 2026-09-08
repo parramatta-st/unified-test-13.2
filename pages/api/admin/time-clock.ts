@@ -14,12 +14,10 @@ import {
   tutorIdFor,
 } from '../../../lib/timeClock';
 import {
-  addCalendarDays,
-  durationHours,
   parseSydneyDateTime,
   rangeFromSydneyDateKeys,
-  sydneyDateKey,
 } from '../../../lib/timeClockCore';
+import { lastCompletedFortnight, validateAdminShiftTimes } from '../../../lib/timeClockEntry';
 
 function norm(value: unknown) {
   return String(value ?? '').trim();
@@ -61,29 +59,10 @@ function parseAdminTime(value: unknown, label: string, required: boolean) {
 function validateAdminTimes(
   clockIn: { ms: number; iso: string },
   clockOut: { ms: number; iso: string } | null,
+  requireEnd = false,
 ) {
-  const now = Date.now();
-  if (clockIn.ms > now + 5 * 60_000 || (clockOut && clockOut.ms > now + 5 * 60_000)) {
-    throw new TimeClockError(
-      422,
-      'FUTURE_SHIFT',
-      'Clock times cannot be more than five minutes in the future.',
-    );
-  }
-  if (clockOut && clockOut.ms <= clockIn.ms) {
-    throw new TimeClockError(
-      422,
-      'INVALID_CLOCK_ORDER',
-      'Clock out must be after clock in.',
-    );
-  }
-  if (clockOut && durationHours(clockIn.ms, clockOut.ms) > 168) {
-    throw new TimeClockError(
-      422,
-      'SHIFT_TOO_LONG',
-      'A single shift cannot exceed seven days. Check the dates and try again.',
-    );
-  }
+  const issue = validateAdminShiftTimes(clockIn.ms, clockOut?.ms ?? null, requireEnd);
+  if (issue) throw new TimeClockError(422, issue.code, issue.error);
 }
 
 function sendError(res: NextApiResponse, error: unknown) {
@@ -119,9 +98,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (req.method === 'GET') {
     try {
-      const today = sydneyDateKey(Date.now());
-      const from = norm(req.query.from) || addCalendarDays(today, -13);
-      const to = norm(req.query.to) || today;
+      const defaults = lastCompletedFortnight();
+      const from = norm(req.query.from) || defaults.from;
+      const to = norm(req.query.to) || defaults.to;
       const range = rangeFromSydneyDateKeys(from, to);
       if (!range.ok) {
         throw new TimeClockError(400, 'INVALID_DATE_RANGE', range.error);
@@ -191,11 +170,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       throw new TimeClockError(400, 'UNKNOWN_ACTION', 'Unknown admin action.');
     }
     const reason = cleanText(req.body?.reason, 'Reason', 1_000);
-    if (reason.length < 8) {
+    if (action !== 'create_shift' && !reason) {
       throw new TimeClockError(
         400,
         'REASON_REQUIRED',
-        'Enter a clear reason of at least 8 characters for every admin change.',
+        'Enter a written reason when correcting or voiding an existing shift.',
       );
     }
     const notes = cleanText(req.body?.notes, 'Notes', 1_000);
@@ -224,7 +203,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       };
       parsedClockIn = parseAdminTime(req.body?.clockIn, 'Clock in', true);
       parsedClockOut = parseAdminTime(req.body?.clockOut, 'Clock out', false);
-      validateAdminTimes(parsedClockIn!, parsedClockOut);
+      validateAdminTimes(parsedClockIn!, parsedClockOut, true);
     } else if (!shiftId) {
       throw new TimeClockError(400, 'SHIFT_REQUIRED', 'Shift ID is required.');
     } else if (!Number.isInteger(requestedVersion) || requestedVersion < 1) {
@@ -269,8 +248,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             clockIn: parsedClockIn!.iso,
             clockOut: parsedClockOut?.iso || '',
             notes,
-            adminOverride: 'TRUE',
-            overrideReason: reason,
+            // A historical manual entry has no location attempt to override.
+            // Its admin identity, notes, and actual entry time are still audited.
+            adminOverride: 'FALSE',
+            overrideReason: '',
             reason,
           };
         }
