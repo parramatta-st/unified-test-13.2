@@ -7,6 +7,9 @@ import {
   requestFingerprint,
   type ClockEvent,
 } from '../lib/timeClock';
+import { lastCompletedFortnight } from '../lib/timeClockEntry';
+import { rangeFromSydneyDateKeys } from '../lib/timeClockCore';
+import { reviewExplanation } from '../lib/timeClockReview';
 
 const campusKey = 'test-campus';
 const tutorId = 'test-tutor-id';
@@ -195,4 +198,60 @@ test('ignores a ledger event whose cells were edited after creation', () => {
   assert.equal(replay.shifts.length, 0);
   assert.equal(replay.integrityWarnings.length, 1);
   assert.equal(replay.outcomes.get('event_tampered')?.code, 'EVENT_INTEGRITY_FAILED');
+});
+
+test('manual creation needs no reason but still records admin, timestamps, notes, payroll, and adjustment history', () => {
+  const manual = event('admin_create', {
+    eventId: 'manual_no_reason', actorRole: 'admin', actorName: 'Test Admin',
+    occurredAt: '2026-09-08T01:00:00.000Z',
+    clockIn: '2026-09-07T06:00:00.000Z', clockOut: '2026-09-07T10:00:00.000Z',
+    notes: '', reason: '', adminOverride: 'FALSE', locationVerified: 'FALSE',
+  });
+  const replay = replayTimeClockEvents([manual]);
+  assert.equal(replay.outcomes.get(manual.eventId)?.accepted, true);
+  const shift = replay.shifts[0];
+  assert.equal(shift.clockInBy, 'Test Admin');
+  assert.equal(shift.createdAt, manual.occurredAt);
+  assert.equal(shift.clockIn, manual.clockIn);
+  assert.equal(shift.manual, true);
+  assert.equal(shift.clockInAdminOverride, false);
+  assert.deepEqual(shift.reviewFlags, []);
+  assert.equal(shift.normalMinutes, 180);
+  assert.equal(shift.after7Minutes, 60);
+  assert.equal(replay.adjustments[0].changedBy, 'Test Admin');
+  assert.equal(replay.adjustments[0].reason, '');
+  assert.equal(replay.adjustments[0].newClockOut, manual.clockOut);
+  const duplicate = event('admin_create', { ...manual, eventId: 'duplicate_manual', requestId: 'different_manual_request', targetShiftId: 'duplicate_shift' });
+  const overlapped = replayTimeClockEvents([manual, duplicate]);
+  assert.equal(overlapped.outcomes.get(duplicate.eventId)?.code, 'OVERLAPPING_SHIFT');
+  assert.equal(overlapped.shifts.length, 1);
+  const unauthorised = event('admin_create', { ...manual, eventId: 'unauthorised_manual', actorRole: 'tutor' });
+  assert.equal(replayTimeClockEvents([unauthorised]).outcomes.get(unauthorised.eventId)?.code, 'ADMIN_REQUIRED');
+  const edit = event('admin_edit', { ...manual, action: 'admin_edit', eventId: 'edit_without_reason', requestId: 'edit_without_reason_request', baseVersion: '1' });
+  assert.equal(replayTimeClockEvents([manual, edit]).outcomes.get(edit.eventId)?.code, 'REASON_REQUIRED');
+});
+
+test('recorded location overrides remain audited without falsely flagging valid hours', () => {
+  const clockIn = event('clock_in', { actorRole: 'admin', actorName: 'Test Admin', locationVerified: 'FALSE', adminOverride: 'TRUE', overrideReason: 'Test 1' });
+  const clockOut = event('clock_out', { actorRole: 'admin', actorName: 'Test Admin', occurredAt: '2026-08-31T09:00:00.000Z', baseVersion: '1', locationVerified: 'FALSE', adminOverride: 'TRUE', overrideReason: 'Test 1' });
+  const replay = replayTimeClockEvents([clockIn, clockOut]);
+  assert.deepEqual(replay.shifts[0].reviewFlags, []);
+  assert.equal(replay.shifts[0].clockInOverrideReason, 'Test 1');
+  assert.equal(replay.shifts[0].clockOutOverrideReason, 'Test 1');
+});
+
+test('missing clock-outs appear in payroll review with an explanation but add no unpaid open hours', () => {
+  const clockIn = event('clock_in', { occurredAt: '2026-09-07T06:00:00.000Z' });
+  const nowMs = Date.parse('2026-09-08T10:00:00+10:00');
+  const replay = replayTimeClockEvents([clockIn], { nowMs, openShiftAlertHours: 12 });
+  assert.ok(replay.shifts[0].reviewFlags.includes('open_over_limit'));
+  assert.ok(replay.shifts[0].reviewFlags.includes('crosses_midnight'));
+  assert.match(reviewExplanation('open_over_limit'), /enter the end time/);
+  const dates = lastCompletedFortnight(nowMs);
+  const range = rangeFromSydneyDateKeys(dates.from, dates.to);
+  assert.ok(range.ok);
+  const view = buildPayrollRange({ state: { ...replay, sourceFingerprint: '', rawEventCount: 1 }, campusKey, startMs: range.startMs, endMs: range.endMs, nowMs });
+  assert.equal(view.summary[0].reviewCount, 1);
+  assert.equal(view.summary[0].shifts, 0);
+  assert.equal(view.summary[0].totalMinutes, 0);
 });

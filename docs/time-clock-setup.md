@@ -120,10 +120,33 @@ clock-in date.
   background or continuous location tracking.
 - Admin location overrides require a reason and record the actor separately from
   the tutor whose shift is affected.
-- Admin corrections and manual shifts require a reason and retain old/new times.
+- Admin corrections and voids require a reason and retain old/new times. Adding
+  a missed shift uses optional notes; the admin, entry time, and created shift
+  are always saved to the event ledger and adjustment history.
 - Duplicate/error shifts are voided rather than deleted.
-- Extremely long, open, future, overlapping, manually created, overridden, and
-  unclassified-Sunday shifts are visible as review flags.
+- Long, overdue open, future, overlapping, cross-midnight, unverified-location,
+  and unclassified-Sunday shifts show specific review reasons and explanations.
+  Manual entries and logged location overrides remain visible as audit information
+  without falsely marking otherwise valid hours as needing review.
+
+## Manual entry and payroll date selection
+
+- Admins can select **Add manual entry** directly in the header Time Clock
+  window, or from the admin payroll page. Both use the same form and admin API.
+- The form uses one Sydney shift date and start/end times. New manual entries
+  require both times; an end at or before the start is rejected, never silently
+  rolled into tomorrow. Invalid dates, DST gaps/ambiguities, future times, and
+  overlaps are rejected. Existing entries can be corrected with a written reason.
+- Old ledger events keep their original dates and the payroll engine still
+  calculates historical cross-midnight hours correctly. New admin writes must
+  use one day; unexpectedly overnight recorded shifts are flagged for review.
+- The default and **Last 14 days** shortcut select the 14 complete Sydney dates
+  before today. On 8 September 2026 this is 25 August–7 September. On Monday
+  7 September it is Monday 24 August–Sunday 6 September. The range is calculated
+  when opening the page, with previous/next fortnight and custom dates available.
+- Overdue open shifts appear in summary review counts but add no payroll hours
+  until a clock-out is supplied. An ordinary current shift is not a payroll error.
+- No new environment variables, spreadsheet tabs, or header migration are needed.
 
 ## Preview and physical test checklist
 
