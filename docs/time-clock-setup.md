@@ -91,14 +91,16 @@ TIME_CLOCK_ADJUSTMENTS_SHEET_NAME=time_clock_adjustments
 All calculations use `Australia/Sydney`, including daylight-saving changes.
 
 - Monday–Friday before 7:00 PM: Normal Hours
-- Monday–Friday from 7:00 PM: After 7 PM Hours
-- Saturday at any time: Saturday Hours
+- Monday–Friday from 7:00 PM and Saturday at any time: **After 7 PM + Saturday Hours**
 
-The categories are mutually exclusive. A Friday 11:00 PM–Saturday 2:00 AM
-shift becomes 1.00 After 7 PM hour and 2.00 Saturday hours.
+The two displayed categories are mutually exclusive. A Friday 11:00 PM–Saturday
+2:00 AM shift contributes 3.00 combined hours. Saturday evenings are counted once.
+The original `after7Minutes` and `saturdayMinutes` fields remain in the stored
+shift and audit data for compatibility; the portal and CSV add those integer
+minutes before converting to decimal hours. No spreadsheet migration is needed.
 
 No Sunday rate was supplied. Sunday time is therefore not silently put into a
-weekday category: it appears as `unclassifiedHours`, is excluded from the three
+weekday category: it appears as `unclassifiedHours`, is excluded from the two
 main totals, and raises a visible payroll review flag. Configure a Sunday rule
 before regularly rostering Sunday work.
 
@@ -160,7 +162,7 @@ Before production promotion:
 6. Test just outside the radius and confirm the normal action is rejected.
 7. As an admin, test a written location override and another-tutor action.
 8. Create, edit, and void a test shift; inspect its full adjustment history.
-9. Verify a Friday-to-Saturday boundary and the three payroll columns.
+9. Verify a Friday-to-Saturday boundary and the two payroll totals.
 10. Export the selected range CSV and compare it with the admin summary.
 
 Browser geolocation can be spoofed by a deliberately modified device. It is a

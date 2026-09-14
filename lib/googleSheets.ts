@@ -540,9 +540,8 @@ export async function upsertSheetRowByKey(options: {
 }) {
   const spreadsheetId = options.spreadsheetId || spreadsheetIdFor();
   await ensureSheet(options.sheetName, spreadsheetId);
-  const values = await readSheetValues(options.sheetName, spreadsheetId).catch(
-    () => [] as any[][],
-  );
+  // An outage must not turn an existing member table into a one-row replacement.
+  const values = await readSheetValues(options.sheetName, spreadsheetId);
   if (!values.length) {
     await overwriteSheetRows(
       options.sheetName,

@@ -1,3 +1,4 @@
+import { combinedPremiumMinutes, combinedPremiumHours } from './timeClockPayroll';
 import crypto from 'crypto';
 import {
   appendSheetRows,
@@ -432,10 +433,13 @@ export function verifyLocation(input?: LocationInput | null): LocationResult {
       accuracy: null,
     };
   }
-  const latitude = Number(input.latitude);
-  const longitude = Number(input.longitude);
-  const accuracy = Number(input.accuracy);
+  const latitude = input.latitude;
+  const longitude = input.longitude;
+  const accuracy = input.accuracy;
   if (
+    typeof latitude !== 'number' ||
+    typeof longitude !== 'number' ||
+    typeof accuracy !== 'number' ||
     !Number.isFinite(latitude) ||
     !Number.isFinite(longitude) ||
     latitude < -90 ||
@@ -1479,6 +1483,10 @@ export function publicShiftSnapshot(shift: TimeClockShift | null) {
 }
 
 export type RangeShift = TimeClockShift & {
+  premiumMinutes: number;
+  premiumHours: number;
+  rangePremiumMinutes: number;
+  rangePremiumHours: number;
   rangeNormalMinutes: number;
   rangeAfter7Minutes: number;
   rangeSaturdayMinutes: number;
@@ -1493,6 +1501,8 @@ export type RangeShift = TimeClockShift & {
 };
 
 export type TutorPayrollSummary = {
+  premiumMinutes: number;
+  premiumHours: number;
   campusKey: string;
   tutorId: string;
   tutorName: string;
@@ -1552,6 +1562,10 @@ export function buildPayrollRange(options: {
     }
     rows.push({
       ...shift,
+      premiumMinutes: combinedPremiumMinutes(shift),
+      premiumHours: combinedPremiumHours(shift),
+      rangePremiumMinutes: combinedPremiumMinutes(rangeHours),
+      rangePremiumHours: combinedPremiumHours(rangeHours),
       rangeNormalMinutes: rangeHours.normalMinutes,
       rangeAfter7Minutes: rangeHours.after7Minutes,
       rangeSaturdayMinutes: rangeHours.saturdayMinutes,
@@ -1573,6 +1587,8 @@ export function buildPayrollRange(options: {
     if (!completed && !(row.status === 'active' && row.reviewFlags.length)) continue;
     const key = `${lower(row.campusKey)}|${row.tutorId || lower(row.tutorName)}`;
     const current = summaryMap.get(key) || {
+      premiumMinutes: 0,
+      premiumHours: 0,
       campusKey: row.campusKey,
       tutorId: row.tutorId,
       tutorName: row.tutorName,
@@ -1601,6 +1617,8 @@ export function buildPayrollRange(options: {
   const summary = Array.from(summaryMap.values())
     .map((row) => ({
       ...row,
+      premiumMinutes: combinedPremiumMinutes(row),
+      premiumHours: combinedPremiumHours(row),
       normalHours: rounded(row.normalMinutes / 60),
       after7Hours: rounded(row.after7Minutes / 60),
       saturdayHours: rounded(row.saturdayMinutes / 60),

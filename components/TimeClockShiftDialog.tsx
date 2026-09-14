@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { checkShiftEntry, localShiftInput } from '../lib/timeClockEntry';
+import { combinedPremiumHours } from '../lib/timeClockPayroll';
 import { splitPaidHours, sydneyDateKey } from '../lib/timeClockCore';
 
 export type EditableClockShift = {
@@ -186,8 +187,7 @@ export default function TimeClockShiftDialog({ mode, tutors, initialTutor, shift
                 <strong>{hours ? `Total time: ${Math.floor(hours.elapsedMinutes / 60)}h ${hours.elapsedMinutes % 60}m` : checked?.ok && !requireEnd ? 'Open shift — excluded from payroll until clocked out' : 'Enter the date and times to see hours'}</strong>
                 {hours && <div className="tc-entry-bands">
                   <span>Normal <b>{hours.normalHours.toFixed(2)} h</b></span>
-                  <span>After 7 PM <b>{hours.after7Hours.toFixed(2)} h</b></span>
-                  <span>Saturday <b>{hours.saturdayHours.toFixed(2)} h</b></span>
+                  <span>After 7 PM + Saturday <b>{combinedPremiumHours(hours).toFixed(2)} h</b></span>
                 </div>}
                 {!!hours?.unclassifiedMinutes && <p className="tc-entry-warning">{hours.unclassifiedHours.toFixed(2)} h on Sunday need a pay category review.</p>}
               </div>
@@ -212,7 +212,7 @@ export default function TimeClockShiftDialog({ mode, tutors, initialTutor, shift
         .tc-entry-head{display:flex;justify-content:space-between;align-items:flex-start;gap:.7rem;padding-bottom:1rem;border-bottom:1px solid rgba(255,255,255,.1)}h2{margin:.25rem 0 0;font-size:1.4rem;overflow-wrap:anywhere}
         .tc-entry-close{flex:none;width:38px;height:38px;border-radius:50%;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:inherit;font-size:1.3rem;cursor:pointer}
         fieldset{border:0;padding:0;margin:0;min-width:0}.tc-entry-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:.9rem;margin-top:1rem}label{display:block;min-width:0}label>span{display:block;font-size:.8rem;color:#b1bdcd;margin-bottom:.4rem}input,select,textarea{width:100%;min-width:0;max-width:100%;box-sizing:border-box;font-size:16px;color-scheme:dark}.tc-entry-person{padding:.7rem 0;font-weight:650}.tc-entry-notes{margin-top:1rem}.tc-entry-notes textarea{min-height:74px;resize:vertical}
-        .tc-entry-help{font-size:.75rem;line-height:1.5;color:#8f9eb0;margin:.7rem 0}.tc-entry-warning{color:#fde68a;font-size:.8rem;line-height:1.5}.tc-entry-duration{padding:.9rem;border:1px solid rgba(49,200,255,.16);border-radius:14px;background:rgba(49,200,255,.04);font-size:.85rem}.tc-entry-bands{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.5rem;margin-top:.8rem;color:#9eaec1;font-size:.72rem}.tc-entry-bands b{display:block;margin-top:.15rem;font-size:.9rem;color:#e7edf6}.tc-entry-bands span:nth-child(2) b{color:#7dd3fc}.tc-entry-bands span:nth-child(3) b{color:#fdba74}
+        .tc-entry-help{font-size:.75rem;line-height:1.5;color:#8f9eb0;margin:.7rem 0}.tc-entry-warning{color:#fde68a;font-size:.8rem;line-height:1.5}.tc-entry-duration{padding:.9rem;border:1px solid rgba(49,200,255,.16);border-radius:14px;background:rgba(49,200,255,.04);font-size:.85rem}.tc-entry-bands{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.5rem;margin-top:.8rem;color:#9eaec1;font-size:.72rem}.tc-entry-bands b{display:block;margin-top:.15rem;font-size:.9rem;color:#e7edf6}.tc-entry-bands span:nth-child(2) b{color:#7dd3fc}.tc-entry-bands span:nth-child(3) b{color:#fdba74}
         .tc-entry-error{padding:.8rem;border-radius:12px;color:#fecaca;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.24);font-size:.82rem;line-height:1.5}.tc-entry-actions{display:flex;justify-content:flex-end;gap:.6rem;padding:1rem 0 .1rem;margin-top:1rem;border-top:1px solid rgba(255,255,255,.1)}.tc-entry-actions button{min-height:44px;min-width:110px}.tc-entry-danger{background:#dc2626!important;color:white!important}
         @media(max-width:560px){.tc-entry-backdrop{padding:.5rem}.tc-entry-dialog{max-height:calc(100dvh - 1rem);padding:1rem;border-radius:18px}.tc-entry-actions{position:sticky;bottom:-1rem;background:#0b0d12;padding-bottom:max(.7rem,env(safe-area-inset-bottom))}.tc-entry-actions button{flex:1}.tc-entry-grid{gap:.8rem .6rem}}
         @media(max-width:360px){.tc-entry-grid{grid-template-columns:minmax(0,1fr)}h2{font-size:1.2rem}}
