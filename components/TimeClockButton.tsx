@@ -9,6 +9,7 @@ import {
   type TimeClockShiftSnapshot,
 } from '../lib/timeClockClientState';
 import { hasWrittenOverrideReason } from '../lib/timeClockValidation';
+import { timeClockRequest } from '../lib/timeClockRequest';
 import TimeClockShiftDialog from './TimeClockShiftDialog';
 
 type ShiftSnapshot = TimeClockShiftSnapshot;
@@ -64,8 +65,7 @@ async function requestClockState(force = false) {
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const response = await fetch('/api/time-clock', { cache: 'no-store' });
-        const json = await response.json().catch(() => ({}));
+        const { response, json } = await timeClockRequest('/api/time-clock', { cache: 'no-store' });
         if (!response.ok || !json?.ok) {
           const requestError = new Error(json?.error || 'Time Clock is unavailable.');
           (requestError as any).status = response.status;
@@ -197,6 +197,7 @@ export default function TimeClockButton() {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const pendingRequest = useRef<{ signature: string; requestId: string } | null>(null);
   const stateRevision = useRef(0);
+  const busyRef = useRef(false);
 
   const load = useCallback(async (force = false) => {
     const revision = stateRevision.current;
@@ -254,7 +255,9 @@ export default function TimeClockButton() {
 
     void load();
     const tickId = window.setInterval(() => setTick((value) => value + 1), 30_000);
-    const refreshId = window.setInterval(() => void load(true), 120_000);
+    const refreshId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void load(true);
+    }, 120_000);
     const onFocus = () => void load(true);
     const onAdminChange = () => {
       invalidateSharedStateRequest();
@@ -353,11 +356,12 @@ export default function TimeClockButton() {
   }
 
   async function act() {
-    if (!target || busy) return;
+    if (!target || busyRef.current) return;
     if (override && !hasWrittenOverrideReason(overrideReason)) {
       setError('Enter a written reason for the admin location override.');
       return;
     }
+    busyRef.current = true;
     setBusy(true);
     setError('');
     setMessage('');
@@ -376,11 +380,11 @@ export default function TimeClockButton() {
         setLocationPhase('idle');
       }
       const action = activeForTarget ? 'clock_out' : 'clock_in';
-      const signature = `${action}|${target.toLowerCase()}|${activeForTarget?.shiftId || ''}`;
+      const signature = JSON.stringify({ action, target: target.toLowerCase(), shiftId: activeForTarget?.shiftId || '', notes, override, overrideReason });
       if (!pendingRequest.current || pendingRequest.current.signature !== signature) {
         pendingRequest.current = { signature, requestId: newRequestId() };
       }
-      response = await fetch('/api/time-clock', {
+      const result = await timeClockRequest('/api/time-clock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -393,7 +397,8 @@ export default function TimeClockButton() {
           requestId: pendingRequest.current.requestId,
         }),
       });
-      const json = await response.json().catch(() => ({}));
+      response = result.response;
+      const json = result.json;
       if (!response.ok || !json?.ok) {
         const actionError: any = new Error(
           json?.error || 'The Time Clock action failed. Please try again.',
@@ -442,15 +447,18 @@ export default function TimeClockButton() {
       })();
       setState(nextState);
       cacheClockStatus(nextState);
-      window.setTimeout(() => {
-        setOpen(false);
-        setMessage('');
-      }, 650);
+      setOpen(false);
+      setManualEntryMessage(json.message || 'Time Clock updated.');
       void load(true);
     } catch (actionError: any) {
       if (response && response.status < 500) pendingRequest.current = null;
       setLocationPhase('error');
       setError(actionError?.message || 'The Time Clock action failed.');
+      if (response?.status === 409) {
+        invalidateSharedStateRequest();
+        stateRevision.current += 1;
+        void load(true);
+      }
       if (
         state.isAdmin &&
         ['LOCATION_INACCURATE', 'OUTSIDE_GEOFENCE', 'GEOFENCE_NOT_CONFIGURED'].includes(
@@ -460,6 +468,7 @@ export default function TimeClockButton() {
         setLocationDetail('If appropriate, use the logged admin override below.');
       }
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }

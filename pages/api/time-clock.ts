@@ -41,9 +41,9 @@ function cleanText(value: unknown, label: string, maximum: number) {
 function browserLocation(value: any): LocationInput | null {
   if (!value || typeof value !== 'object') return null;
   return {
-    latitude: Number(value.latitude),
-    longitude: Number(value.longitude),
-    accuracy: Number(value.accuracy),
+    latitude: value.latitude,
+    longitude: value.longitude,
+    accuracy: value.accuracy,
   };
 }
 

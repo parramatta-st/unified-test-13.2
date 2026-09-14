@@ -4,6 +4,7 @@ import useAuthGuard from '../../hooks/useAuthGuard';
 import TimeClockShiftDialog from '../../components/TimeClockShiftDialog';
 import { addCalendarDays as addDays, sydneyDateKey } from '../../lib/timeClockCore';
 import { lastCompletedFortnight } from '../../lib/timeClockEntry';
+import { payrollCsv } from '../../lib/timeClockPayroll';
 import { reviewLabels, reviewExplanation } from '../../lib/timeClockReview';
 
 type Shift = {
@@ -20,6 +21,8 @@ type Shift = {
   rangeNormalHours: number;
   rangeAfter7Hours: number;
   rangeSaturdayHours: number;
+  rangePremiumHours: number;
+  premiumHours: number;
   rangeUnclassifiedHours: number;
   rangeElapsedHours: number;
   rangeClipped: boolean;
@@ -51,6 +54,11 @@ type Shift = {
 };
 
 type Summary = {
+  normalMinutes: number;
+  after7Minutes: number;
+  saturdayMinutes: number;
+  unclassifiedMinutes: number;
+  premiumHours: number;
   tutorId: string;
   tutorName: string;
   shifts: number;
@@ -113,12 +121,6 @@ function formatHours(value: unknown) {
   return number ? `${number.toFixed(2)} h` : '—';
 }
 
-function csvCell(value: unknown) {
-  let text = String(value ?? '');
-  if (/^[=+\-@]/.test(text)) text = `'${text}`;
-  return `"${text.replace(/"/g, '""')}"`;
-}
-
 export default function TimeClockAdmin() {
   useAuthGuard();
   // Compute on opening the page, rather than freezing the range at build time.
@@ -138,21 +140,30 @@ export default function TimeClockAdmin() {
   const [mode, setMode] = useState<EditMode>('');
   const [editing, setEditing] = useState<Shift | null>(null);
   const loadSequence = useRef(0);
+  const [loadedRange, setLoadedRange] = useState('');
+  const rangeError = !from || !to
+    ? 'Choose both a From date and a To date.'
+    : from > to ? 'The From date must be on or before the To date.' : '';
+  const payrollReady = !rangeError && !loading && !error && loadedRange === `${from}|${to}`;
 
   async function load() {
+    if (rangeError) return;
     const sequence = ++loadSequence.current;
     setLoading(true);
     setError('');
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 30_000);
     try {
       const response = await fetch(
         `/api/admin/time-clock?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-        { cache: 'no-store' },
+        { cache: 'no-store', signal: controller.signal },
       );
       const json = await response.json().catch(() => ({}));
       if (!response.ok || !json?.ok) {
         throw new Error(json?.error || 'Could not load Time Clock payroll.');
       }
       if (sequence !== loadSequence.current) return;
+      setLoadedRange(`${from}|${to}`);
       setRows(json.rows || []);
       setSummary(json.summary || []);
       setAdjustments(json.adjustments || []);
@@ -161,9 +172,14 @@ export default function TimeClockAdmin() {
       setIntegrityWarnings(json.integrityWarnings || []);
     } catch (loadError: any) {
       if (sequence === loadSequence.current) {
-        setError(loadError?.message || 'Could not load Time Clock payroll.');
+        setRows([]);
+        setSummary([]);
+        setAdjustments([]);
+        setLoadedRange('');
+        setError(loadError?.name === 'AbortError' ? 'Payroll took too long to load. Please refresh and try again.' : loadError?.message || 'Could not load Time Clock payroll.');
       }
     } finally {
+      window.clearTimeout(timeout);
       if (sequence === loadSequence.current) setLoading(false);
     }
   }
@@ -175,22 +191,26 @@ export default function TimeClockAdmin() {
   }, []);
 
   useEffect(() => {
-    if (from && to) void load();
+    if (!rangeError) void load();
+    else {
+      loadSequence.current += 1;
+      setLoading(false);
+    }
   }, [from, to]);
 
   const visibleRows = useMemo(
     () =>
-      filterTutor
+      !payrollReady ? [] : filterTutor
         ? rows.filter((row) => row.tutorName === filterTutor)
         : rows,
-    [rows, filterTutor],
+    [rows, filterTutor, payrollReady],
   );
   const visibleSummary = useMemo(
     () =>
-      filterTutor
+      !payrollReady ? [] : filterTutor
         ? summary.filter((row) => row.tutorName === filterTutor)
         : summary,
-    [summary, filterTutor],
+    [summary, filterTutor, payrollReady],
   );
   const auditByShift = useMemo(() => {
     const map = new Map<string, Adjustment[]>();
@@ -232,34 +252,8 @@ export default function TimeClockAdmin() {
   }
 
   function exportPayroll() {
-    const headers = [
-      'Tutor',
-      'Normal Hours',
-      'After 7 PM Hours',
-      'Saturday Hours',
-      'Sunday / Unclassified Hours',
-      'Completed Shifts',
-      'Shifts Needing Review',
-    ];
-    const lines = [
-      headers.map(csvCell).join(','),
-      ...visibleSummary.map((row) =>
-        [
-          row.tutorName,
-          row.normalHours.toFixed(2),
-          row.after7Hours.toFixed(2),
-          row.saturdayHours.toFixed(2),
-          row.unclassifiedHours.toFixed(2),
-          row.shifts,
-          row.reviewCount,
-        ]
-          .map(csvCell)
-          .join(','),
-      ),
-    ];
-    const blob = new Blob([`\ufeff${lines.join('\r\n')}`], {
-      type: 'text/csv;charset=utf-8',
-    });
+    if (!payrollReady || integrityWarnings.length) return;
+    const blob = new Blob([payrollCsv(visibleSummary)], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
@@ -278,21 +272,20 @@ export default function TimeClockAdmin() {
               <div className="eyebrow">Payroll</div>
               <h1 className="section-title">Time Clock</h1>
               <p className="text-muted">
-                Review every shift and export Normal, After 7 PM, and Saturday hours
-                separately.
+                Review every shift and export Normal hours plus combined After 7 PM + Saturday hours.
               </p>
             </div>
             <div className="tc-top-actions">
               <button className="btn" onClick={openCreate} disabled={!config.sheets}>
                 + Add manual entry
               </button>
-              <button className="btn" onClick={load} disabled={loading}>
+              <button className="btn" onClick={load} disabled={loading || !!rangeError}>
                 {loading ? 'Refreshing…' : 'Refresh'}
               </button>
             </div>
           </div>
 
-          {!config.sheets && !loading && (
+          {!config.sheets && payrollReady && (
             <div className="tc-banner error">
               {!config.credentials
                 ? 'Google service-account credentials are not available to Time Clock.'
@@ -309,14 +302,15 @@ export default function TimeClockAdmin() {
             <div className="tc-banner error">
               <strong>{integrityWarnings.length} event integrity warning(s).</strong>{' '}
               Payroll excludes altered or incomplete event rows. Inspect the event ledger
-              before processing pay.
+              before processing pay. CSV export is disabled until these warnings are resolved.
             </div>
           )}
           {success && <div className="tc-banner success">✓ {success}</div>}
           {error && <div className="tc-banner error">{error}</div>}
+          {rangeError && <div className="tc-banner error" role="alert">{rangeError}</div>}
 
           <div className="tc-filterbar">
-            <button className="btn" onClick={() => shiftFortnight(-1)}>
+            <button className="btn" onClick={() => shiftFortnight(-1)} disabled={!!rangeError}>
               ‹ Previous fortnight
             </button>
             <label>
@@ -354,7 +348,7 @@ export default function TimeClockAdmin() {
               <button className="btn" onClick={lastFortnight}>
                 Last 14 days
               </button>
-              <button className="btn" onClick={() => shiftFortnight(1)}>
+              <button className="btn" onClick={() => shiftFortnight(1)} disabled={!!rangeError}>
                 Next fortnight ›
               </button>
             </div>
@@ -370,26 +364,25 @@ export default function TimeClockAdmin() {
             <div>
               <h2 className="section-title tc-small-title">Payroll summary</h2>
               <p className="text-muted text-sm">
-                The three main categories are mutually exclusive. Saturday always takes
-                priority over After 7 PM.
+                Weekday hours from 7 PM and all Saturday hours are combined. Each minute is counted once.
               </p>
             </div>
             <button
               className="btn"
               onClick={exportPayroll}
-              disabled={!visibleSummary.length}
+              disabled={!payrollReady || !visibleSummary.length || !!integrityWarnings.length}
             >
               Export CSV
             </button>
           </div>
           <div className="tc-summary-wrap">
+            {loading && <p className="tc-empty" role="status">Loading payroll for the selected range…</p>}
             <table className="tc-summary-table">
               <thead>
                 <tr>
                   <th>Tutor</th>
                   <th>Normal hours</th>
-                  <th>After 7 PM</th>
-                  <th>Saturday</th>
+                  <th>After 7 PM + Saturday</th>
                   <th>Review</th>
                 </tr>
               </thead>
@@ -405,8 +398,7 @@ export default function TimeClockAdmin() {
                       <small>{row.shifts} completed shift{row.shifts === 1 ? '' : 's'}</small>
                     </td>
                     <td className="tc-hours normal">{row.normalHours.toFixed(2)}</td>
-                    <td className="tc-hours after">{row.after7Hours.toFixed(2)}</td>
-                    <td className="tc-hours saturday">{row.saturdayHours.toFixed(2)}</td>
+                    <td className="tc-hours after">{row.premiumHours.toFixed(2)}</td>
                     <td>
                       {row.unclassifiedHours > 0 ? (
                         <span className="tc-review-badge danger">
@@ -422,7 +414,7 @@ export default function TimeClockAdmin() {
                 ))}
               </tbody>
             </table>
-            {!visibleSummary.length && !loading && (
+            {!visibleSummary.length && payrollReady && (
               <div className="tc-empty">No completed shifts in this date range.</div>
             )}
           </div>
@@ -450,8 +442,7 @@ export default function TimeClockAdmin() {
                   <th>Clock in</th>
                   <th>Clock out</th>
                   <th>Normal</th>
-                  <th>After 7 PM</th>
-                  <th>Saturday</th>
+                  <th>After 7 PM + Saturday</th>
                   <th>Status</th>
                   <th aria-label="Actions" />
                 </tr>
@@ -485,8 +476,7 @@ export default function TimeClockAdmin() {
                           )}
                         </td>
                         <td>{formatHours(row.rangeNormalHours)}</td>
-                        <td>{formatHours(row.rangeAfter7Hours)}</td>
-                        <td>{formatHours(row.rangeSaturdayHours)}</td>
+                        <td>{formatHours(row.rangePremiumHours)}</td>
                         <td>
                           <span className={`tc-status ${row.status}`}>
                             {row.status === 'active'
@@ -512,7 +502,7 @@ export default function TimeClockAdmin() {
                       </tr>
                       {expanded && (
                         <tr className="tc-detail-row">
-                          <td colSpan={9}>
+                          <td colSpan={8}>
                             <div className="tc-detail-panel">
                               <div className="tc-detail-grid">
                                 <div>
@@ -569,8 +559,7 @@ export default function TimeClockAdmin() {
                                   <span>Full shift hours</span>
                                   <strong>
                                     {row.normalHours.toFixed(2)} normal ·{' '}
-                                    {row.after7Hours.toFixed(2)} after 7 ·{' '}
-                                    {row.saturdayHours.toFixed(2)} Saturday
+                                    {row.premiumHours.toFixed(2)} after 7 PM + Saturday
                                   </strong>
                                   <small>{row.elapsedHours.toFixed(2)} total elapsed hours</small>
                                 </div>
@@ -649,7 +638,7 @@ export default function TimeClockAdmin() {
                 })}
               </tbody>
             </table>
-            {!visibleRows.length && !loading && (
+            {!visibleRows.length && payrollReady && (
               <div className="tc-empty">No shifts found for this range.</div>
             )}
           </div>
@@ -675,8 +664,8 @@ export default function TimeClockAdmin() {
 
         <style jsx>{`
           .tc-admin-page{padding-bottom:4rem}.tc-title-row,.tc-section-head{display:flex;justify-content:space-between;gap:1rem;align-items:flex-start}.tc-title-row .section-title{margin:.25rem 0 .35rem}.tc-title-row p{margin:0}.tc-top-actions,.tc-range-actions{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:flex-end}.tc-small-title{font-size:1.35rem!important;margin:0 0 .3rem}.tc-filterbar{display:grid;grid-template-columns:auto 1fr 1fr minmax(170px,1fr) auto;gap:.65rem;align-items:end;margin-top:1.2rem}.tc-filterbar label>span,.tc-field>span{display:block;font-size:.72rem;color:#9ca8ba;font-weight:650;margin-bottom:.32rem}.tc-range-actions{flex-wrap:nowrap}.tc-range-label{margin-top:.75rem;color:#8490a2;font-size:.72rem}.tc-banner{padding:.78rem .88rem;border-radius:13px;margin-top:.85rem;font-size:.8rem;border:1px solid}.tc-banner.error{color:#fecaca;background:rgba(239,68,68,.07);border-color:rgba(239,68,68,.24)}.tc-banner.warn{color:#fde68a;background:rgba(245,158,11,.07);border-color:rgba(245,158,11,.22)}.tc-banner.success{color:#bbf7d0;background:rgba(34,197,94,.08);border-color:rgba(34,197,94,.24)}
-          .tc-summary-wrap,.tc-table-wrap{overflow-x:auto;margin-top:.85rem;border:1px solid rgba(255,255,255,.07);border-radius:15px}.tc-summary-table,.tc-table{width:100%;border-collapse:collapse}.tc-summary-table{min-width:720px}.tc-summary-table th,.tc-table th{text-align:left;font-size:.66rem;text-transform:uppercase;letter-spacing:.08em;color:#778497;padding:.65rem .7rem;border-bottom:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.018)}.tc-summary-table td{padding:.82rem .7rem;border-bottom:1px solid rgba(255,255,255,.065);font-size:.8rem}.tc-summary-table tbody tr{cursor:pointer;transition:background .15s ease}.tc-summary-table tbody tr:hover{background:rgba(255,255,255,.035)}.tc-summary-table td small{display:block;color:#778497;font-size:.65rem;margin-top:.16rem}.tc-hours{font-size:1.08rem!important;font-variant-numeric:tabular-nums;font-weight:780}.tc-hours.normal{color:#e6edf7}.tc-hours.after{color:#7dd3fc}.tc-hours.saturday{color:#fdba74}.tc-review-badge{display:inline-block;font-size:.62rem;padding:.25rem .45rem;border-radius:999px;color:#fde68a;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.22)}.tc-review-badge.danger{color:#fecaca;background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.23)}.tc-clear{color:#86efac;font-size:.7rem}
-          .tc-count{font-size:.72rem;color:#8d99a9;border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:.35rem .6rem}.tc-table{min-width:1060px}.tc-table td{padding:.72rem .62rem;border-bottom:1px solid rgba(255,255,255,.065);font-size:.78rem;vertical-align:middle}.tc-table td small{display:block;color:#778497;font-size:.62rem;margin-top:.12rem}.tc-table tr.is-voided>td{opacity:.57;text-decoration-color:#ef4444}.tc-inline-badges{display:flex;gap:.25rem;margin-top:.2rem}.tc-edited,.tc-clipped{display:inline-block;font-size:.56rem;padding:.14rem .32rem;border-radius:999px}.tc-edited{background:rgba(245,158,11,.12);color:#fcd34d}.tc-clipped{background:rgba(49,200,255,.1);color:#7dd3fc}.tc-status{display:inline-block;font-size:.64rem;padding:.26rem .45rem;border-radius:999px;border:1px solid rgba(255,255,255,.1)}.tc-status.active{color:#86efac;border-color:rgba(52,211,153,.25);background:rgba(52,211,153,.06)}.tc-status.voided{color:#fca5a5;border-color:rgba(239,68,68,.23);background:rgba(239,68,68,.06)}.tc-needs-review{color:#fbbf24!important}.tc-details{padding:.36rem .58rem!important;font-size:.68rem!important}.tc-empty{text-align:center;color:#8793a5;padding:2rem}
+          .tc-summary-wrap,.tc-table-wrap{overflow-x:auto;margin-top:.85rem;border:1px solid rgba(255,255,255,.07);border-radius:15px}.tc-summary-table,.tc-table{width:100%;border-collapse:collapse}.tc-summary-table{min-width:560px}.tc-summary-table th,.tc-table th{text-align:left;font-size:.66rem;text-transform:uppercase;letter-spacing:.08em;color:#778497;padding:.65rem .7rem;border-bottom:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.018)}.tc-summary-table td{padding:.82rem .7rem;border-bottom:1px solid rgba(255,255,255,.065);font-size:.8rem}.tc-summary-table tbody tr{cursor:pointer;transition:background .15s ease}.tc-summary-table tbody tr:hover{background:rgba(255,255,255,.035)}.tc-summary-table td small{display:block;color:#778497;font-size:.65rem;margin-top:.16rem}.tc-hours{font-size:1.08rem!important;font-variant-numeric:tabular-nums;font-weight:780}.tc-hours.normal{color:#e6edf7}.tc-hours.after{color:#7dd3fc}.tc-hours.saturday{color:#fdba74}.tc-review-badge{display:inline-block;font-size:.62rem;padding:.25rem .45rem;border-radius:999px;color:#fde68a;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.22)}.tc-review-badge.danger{color:#fecaca;background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.23)}.tc-clear{color:#86efac;font-size:.7rem}
+          .tc-count{font-size:.72rem;color:#8d99a9;border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:.35rem .6rem}.tc-table{min-width:920px}.tc-table td{padding:.72rem .62rem;border-bottom:1px solid rgba(255,255,255,.065);font-size:.78rem;vertical-align:middle}.tc-table td small{display:block;color:#778497;font-size:.62rem;margin-top:.12rem}.tc-table tr.is-voided>td{opacity:.57;text-decoration-color:#ef4444}.tc-inline-badges{display:flex;gap:.25rem;margin-top:.2rem}.tc-edited,.tc-clipped{display:inline-block;font-size:.56rem;padding:.14rem .32rem;border-radius:999px}.tc-edited{background:rgba(245,158,11,.12);color:#fcd34d}.tc-clipped{background:rgba(49,200,255,.1);color:#7dd3fc}.tc-status{display:inline-block;font-size:.64rem;padding:.26rem .45rem;border-radius:999px;border:1px solid rgba(255,255,255,.1)}.tc-status.active{color:#86efac;border-color:rgba(52,211,153,.25);background:rgba(52,211,153,.06)}.tc-status.voided{color:#fca5a5;border-color:rgba(239,68,68,.23);background:rgba(239,68,68,.06)}.tc-needs-review{color:#fbbf24!important}.tc-details{padding:.36rem .58rem!important;font-size:.68rem!important}.tc-empty{text-align:center;color:#8793a5;padding:2rem}
           .tc-detail-row td{padding:0!important;background:rgba(0,0,0,.2)}.tc-detail-panel{padding:1rem 1.1rem}.tc-detail-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem}.tc-detail-grid>div{border:1px solid rgba(255,255,255,.075);background:rgba(255,255,255,.025);border-radius:13px;padding:.72rem}.tc-detail-grid span{display:block;color:#7f8b9b;font-size:.64rem;text-transform:uppercase;letter-spacing:.06em}.tc-detail-grid strong{display:block;font-size:.75rem;margin-top:.28rem}.tc-detail-grid small,.tc-detail-grid em{display:block;color:#8f9aac;font-size:.65rem;line-height:1.4;margin-top:.18rem}.tc-detail-grid em{color:#fcd34d}.tc-notes{margin-top:.7rem;padding:.7rem;border-radius:12px;background:rgba(255,255,255,.025);font-size:.72rem;color:#a9b4c3}.tc-notes>div+div{margin-top:.35rem}.tc-flags{display:flex;gap:.35rem;flex-wrap:wrap;margin-top:.7rem}.tc-flags span{font-size:.62rem;color:#fde68a;background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.18);padding:.26rem .42rem;border-radius:999px}.tc-audit-history{margin-top:.85rem}.tc-audit-history h3{font-size:.8rem;margin:0 0 .45rem}.tc-audit-history article{border-left:2px solid rgba(49,200,255,.32);padding:.48rem .65rem;margin:.4rem 0;background:rgba(49,200,255,.025);border-radius:0 10px 10px 0;font-size:.7rem}.tc-audit-history article p{margin:.25rem 0;color:#c4ceda}.tc-audit-history article small{color:#7f8b9b;line-height:1.5}.tc-detail-actions{display:flex;justify-content:flex-end;gap:.5rem;margin-top:.8rem}.tc-void-button{color:#fca5a5!important;border-color:rgba(239,68,68,.2)!important}
           .tc-review-reasons{max-width:190px;white-space:normal}.tc-review-explanations{margin-top:.8rem;padding:.8rem;border-radius:12px;border:1px solid rgba(245,158,11,.25);background:rgba(245,158,11,.05);color:#fde68a}.tc-review-explanations h3{font-size:.85rem;margin:0 0 .4rem}.tc-review-explanations p{font-size:.75rem;line-height:1.55;margin:.45rem 0}.tc-audit-info{margin-top:.7rem;font-size:.73rem;color:#9ba9bc;line-height:1.5}
           @media(max-width:980px){.tc-filterbar{grid-template-columns:1fr 1fr}.tc-filterbar>button:first-child{grid-column:1}.tc-filterbar label:nth-of-type(3){grid-column:1/-1}.tc-range-actions{justify-content:stretch}.tc-range-actions .btn{flex:1}.tc-detail-grid{grid-template-columns:1fr 1fr}}

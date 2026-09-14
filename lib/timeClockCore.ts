@@ -183,6 +183,14 @@ export function parseSydneyDateTime(value: unknown): SydneyDateTimeResult {
   // An explicit Z/offset is already an unambiguous instant. This also gives an
   // admin a safe escape hatch for the repeated hour when DST ends.
   if (/T.*(?:Z|[+-]\d{2}:\d{2})$/i.test(input)) {
+    const explicit = input.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?(Z|[+-](\d{2}):(\d{2}))$/i);
+    // Date.parse normalises impossible dates such as February 30 into March.
+    // Validate the supplied calendar components before accepting an instant.
+    if (!explicit || !calendarDateIsValid(Number(explicit[1]), Number(explicit[2]), Number(explicit[3])) ||
+        Number(explicit[4]) > 23 || Number(explicit[5]) > 59 || Number(explicit[6] || 0) > 59 ||
+        Number(explicit[8] || 0) > 23 || Number(explicit[9] || 0) > 59) {
+      return { ok: false, code: 'INVALID_DATE_TIME', error: 'The supplied date or time does not exist.' };
+    }
     const milliseconds = Date.parse(input);
     if (!Number.isFinite(milliseconds)) {
       return {

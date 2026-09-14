@@ -1,5 +1,21 @@
 # Time Clock / Payroll Hours — v1.7.0
 
+## 14 September 2026 — combined payroll and release checks
+
+- Combined weekday after-7pm and Saturday hours in the summary, shift detail,
+  manual-entry preview, and CSV. Sum stored integer minutes before formatting.
+- Prevent stale date-range exports during loading or after failed requests;
+  show invalid-range errors and block exports when event integrity checks fail.
+- Bound clock requests, preserve retry IDs, guard immediate double submissions,
+  close successful clock actions immediately, and show a confirmation toast.
+- Reject malformed location inputs and impossible explicit-offset calendar dates.
+- Prevent a failed member-sheet read from being treated as an empty sheet during
+  an upsert, avoiding destructive replacement on an upstream outage.
+- Update Next.js, Nodemailer, cookie, and transitive PostCSS security patches;
+  use Node.js 20.9+ (the current Vercel project uses Node.js 24).
+- See `time-clock-release-verification-20260914.md` for evidence, limits, and
+  the remaining checks required before wider access.
+
 ## 8 September 2026 — manual entries and payroll review
 
 - Added a direct **Add manual entry** action to the main Time Clock window.
