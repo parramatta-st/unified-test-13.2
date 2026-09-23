@@ -20,7 +20,8 @@ import {
 
 export const TIME_CLOCK_TZ = 'Australia/Sydney';
 
-export const EVENT_HEADERS = [
+// Never reorder v1 headers: historical event hashes depend on their exact order.
+const V1_EVENT_HEADERS = [
   'eventId',
   'requestId',
   'requestFingerprint',
@@ -47,6 +48,8 @@ export const EVENT_HEADERS = [
   'reason',
   'eventHash',
 ] as const;
+
+export const EVENT_HEADERS = [...V1_EVENT_HEADERS, 'accessMethod', 'accessPoint', 'identityMethod'] as const;
 
 export const SHIFT_HEADERS = [
   'shiftId',
@@ -99,6 +102,7 @@ export const SHIFT_HEADERS = [
   'voidReason',
   'reviewFlags',
   'lastEventId',
+  'clockInAccessMethod', 'clockOutAccessMethod', 'clockInAccessPoint', 'clockOutAccessPoint',
 ] as const;
 
 export const ADJUSTMENT_HEADERS = [
@@ -199,6 +203,10 @@ export type TimeClockShift = {
   voidReason: string;
   reviewFlags: string[];
   lastEventId: string;
+  clockInAccessMethod?: string;
+  clockOutAccessMethod?: string;
+  clockInAccessPoint?: string;
+  clockOutAccessPoint?: string;
 };
 
 export type TimeClockAdjustment = {
@@ -524,7 +532,8 @@ function requestKey(event: Pick<ClockEvent, 'campusKey' | 'actorName' | 'request
 }
 
 function hashEvent(event: Partial<ClockEvent>) {
-  const values = EVENT_HEADERS.filter((header) => header !== 'eventHash').map(
+  const headers = event.schemaVersion === '2' ? EVENT_HEADERS : V1_EVENT_HEADERS;
+  const values = headers.filter((header) => header !== 'eventHash').map(
     (header) => norm(event[header]),
   );
   return crypto.createHash('sha256').update(JSON.stringify(values)).digest('hex');
@@ -549,7 +558,10 @@ export function createClockEvent(
   const event = {} as ClockEvent;
   for (const header of EVENT_HEADERS) event[header] = norm(input[header]);
   event.eventId = event.eventId || newTimeClockId('event');
-  event.schemaVersion = '1';
+  event.schemaVersion = input.accessMethod === 'door_link' ? '2' : '1';
+  if (event.schemaVersion === '1') {
+    event.accessMethod = ''; event.accessPoint = ''; event.identityMethod = '';
+  }
   event.campusKey = lower(event.campusKey);
   event.actorRole = lower(event.actorRole);
   event.locationVerified = truthy(input.locationVerified) ? 'TRUE' : 'FALSE';
@@ -760,6 +772,9 @@ function applyEvent(
       clockOutAccuracy: '',
       clockOutDistanceM: '',
       clockOutLocationVerified: false,
+      clockInAccessMethod: event.accessMethod || 'portal',
+      clockInAccessPoint: event.accessPoint || '',
+      clockOutAccessMethod: '', clockOutAccessPoint: '',
       clockInBy: event.actorName,
       clockOutBy: '',
       clockInPerformedAs: event.actorRole === 'admin' ? 'admin' : 'tutor',
@@ -813,6 +828,8 @@ function applyEvent(
       );
     }
     shift.clockOut = event.occurredAt;
+    shift.clockOutAccessMethod = event.accessMethod || 'portal';
+    shift.clockOutAccessPoint = event.accessPoint || '';
     shift.clockOutLat = event.latitude;
     shift.clockOutLng = event.longitude;
     shift.clockOutAccuracy = event.accuracy;
@@ -882,6 +899,9 @@ function applyEvent(
       clockOutAccuracy: '',
       clockOutDistanceM: '',
       clockOutLocationVerified: false,
+      clockInAccessMethod: 'admin_manual',
+      clockInAccessPoint: event.accessPoint || '',
+      clockOutAccessMethod: '', clockOutAccessPoint: '',
       clockInBy: event.actorName,
       clockOutBy: event.clockOut ? event.actorName : '',
       clockInPerformedAs: 'admin',
@@ -964,6 +984,8 @@ function applyEvent(
     shift.version += 1;
     shift.lastEventId = event.eventId;
     if (!event.clockOut) {
+      shift.clockOutAccessMethod = '';
+      shift.clockOutAccessPoint = '';
       shift.clockOutLat = '';
       shift.clockOutLng = '';
       shift.clockOutAccuracy = '';
@@ -1038,12 +1060,13 @@ function calculateReviewFlags(
     }
     if (shift.unclassifiedHours > 0) flags.add('sunday_unclassified');
     // Manual entries and recorded overrides are audit information, not errors.
-    if (!shift.manual && !shift.clockInLocationVerified && !shift.clockInAdminOverride) {
+    if (!shift.manual && shift.clockInAccessMethod !== 'door_link' && !shift.clockInLocationVerified && !shift.clockInAdminOverride) {
       flags.add('clock_in_location_unverified');
     }
     if (
       shift.status === 'completed' &&
       !shift.manual &&
+      shift.clockOutAccessMethod !== 'door_link' &&
       !shift.clockOutLocationVerified &&
       !shift.clockOutAdminOverride
     ) {
@@ -1114,7 +1137,12 @@ export function replayTimeClockEvents(
       return;
     }
     if (
-      event.schemaVersion !== '1' ||
+      !['1', '2'].includes(event.schemaVersion) ||
+      (event.schemaVersion === '1' && !!(event.accessMethod || event.accessPoint || event.identityMethod)) ||
+      (event.schemaVersion === '2' && (event.accessMethod !== 'door_link' || !event.accessPoint ||
+        event.identityMethod !== 'name_selection' || event.actorRole !== 'tutor' ||
+        truthy(event.locationVerified) || truthy(event.adminOverride) ||
+        !['clock_in', 'clock_out'].includes(event.action))) ||
       !event.requestId ||
       !event.requestFingerprint ||
       !event.campusKey ||
