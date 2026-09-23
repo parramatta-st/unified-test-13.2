@@ -49,7 +49,7 @@ export default function DoorClockSettings() {
     anchor.href = objectUrl; anchor.download = 'Success-Tutoring-Door-Clock-QR.svg'; anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
   }
-  return <div><Head><title>Door NFC / QR | Success Tutoring</title><meta name="referrer" content="no-referrer" /></Head><Header />
+  return <div className="door-admin-page"><Head><title>Door NFC / QR | Success Tutoring</title><meta name="referrer" content="no-referrer" /></Head><Header />
     <main className="container"><section className="card door-settings">
       <div className="heading"><div><div className="eyebrow">TIME CLOCK</div><h1>Door NFC / QR</h1><p className="text-muted">A simple tap at the door. No portal login, PIN or GPS prompt.</p></div><Link className="btn" href="/admin">Back to Admin</Link></div>
       {error && <p className="admin-alert error" role="alert">{error}</p>}
@@ -64,6 +64,7 @@ export default function DoorClockSettings() {
       </>}
     </section></main>
     <style jsx>{`
+      .door-admin-page { min-height: 100vh; background: #090b10; padding-bottom: 2rem; }
       .door-settings { max-width: 1000px; margin: 0 auto; padding: clamp(22px,4vw,42px); }
       .heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
       h1 { margin: 8px 0 10px; font-size: clamp(27px,4vw,38px); letter-spacing: -.04em; } h2 { font-size: 18px; margin: 0 0 12px; }

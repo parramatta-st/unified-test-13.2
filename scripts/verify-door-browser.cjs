@@ -40,7 +40,7 @@ async function scenario(browser, options = {}) {
       for (const storage of ['localStorage', 'sessionStorage']) Object.defineProperty(window, storage, { get() { throw new DOMException('Blocked', 'SecurityError'); } });
     } else if (remembered) localStorage.setItem('st_door_choice_v1', remembered);
   }, { remembered: options.remembered, denyStorage: options.denyStorage });
-  const state = { active: options.active ? { shiftId: 'shift-demo', clockIn: new Date(Date.now() - 7200000).toISOString(), version: 1, needsReview: false } : null, roster: [...roster], posts: [], getCount: 0, failGet: false, failPostOnce: false, stalePost: false, revoked: false, delayGet: 0, delayPost: 0, urlEvents: [], receipts: new Map() };
+  const state = { active: options.active ? { shiftId: 'shift-demo', clockIn: new Date(Date.now() - 7200000).toISOString(), version: 1, needsReview: false } : null, roster: [...roster], posts: [], getCount: 0, failGet: false, failPostOnce: false, stalePost: false, revoked: false, adminEnabled: false, delayGet: 0, delayPost: 0, urlEvents: [], receipts: new Map() };
   const page = await context.newPage(); const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
   page.on('request', r => state.urlEvents.push(r.url()));
@@ -69,8 +69,8 @@ async function scenario(browser, options = {}) {
     }
     if (pathname === '/api/admin-status') return send({ ok: true, authed: !!options.admin, isAdmin: !!options.admin, campus, tutor: 'Demo Admin' });
     if (pathname === '/api/admin-door-clock') {
-      if (request.method() === 'POST') return send({ ok: true, path: `/clock/tap#key=${key}` });
-      return send({ ok: true, enabled: false, campus, updatedAt: '', updatedBy: '' });
+      if (request.method() === 'POST') { state.adminEnabled = true; return send({ ok: true, enabled: true, path: `/clock/tap#key=${key}` }); }
+      return send({ ok: true, enabled: state.adminEnabled, campus, updatedAt: '', updatedBy: '' });
     }
     if (pathname === '/api/tutors') return send({ ok: true, tutors: roster.map(t => ({ tutorName: t.name, campusKey: campus, campusName: 'Parramatta' })), campuses: [{ id: campus, name: 'Parramatta' }] });
     if (pathname === '/api/time-clock') return send({ ok: true, tutor: 'Demo Admin', campus, activeShift: null, isAdmin: true, tutors: [], config: { sheets: false, geofence: false } });
@@ -170,6 +170,8 @@ function adminCookie() {
         await expect(s.page.getByRole('textbox', { name: 'Door link (shown only when created)' })).toHaveValue(`${base}/clock/tap#key=${key}`);
         await expect(s.page.getByRole('img', { name: 'Scan to open the door Time Clock' })).toBeVisible();
         const qrSrc = await s.page.getByRole('img', { name: 'Scan to open the door Time Clock' }).getAttribute('src'); assert.ok(qrSrc.startsWith('data:image/svg+xml'));
+        await expect(s.page.getByText('Door link enabled', { exact: true })).toBeVisible();
+        await expect(s.page.getByRole('button', { name: 'Replace door link', exact: true })).toBeEnabled();
         await s.snapshot('admin-setup');
         await s.page.setViewportSize({ width: 390, height: 844 }); assert.ok(await s.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)); await s.snapshot('admin-mobile'); await s.finish();
       });
