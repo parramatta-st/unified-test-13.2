@@ -11,6 +11,8 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith('/api') ||
     pathname.startsWith('/_next') ||
     pathname === '/login' ||
+    // Door page has its own limited token-only API; never issues a portal session.
+    pathname === '/clock/tap' ||
     /\.[^/]+$/.test(pathname)
   ) {
     return NextResponse.next();

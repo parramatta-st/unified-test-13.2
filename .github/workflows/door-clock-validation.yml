@@ -27,11 +27,17 @@ jobs:
       - run: npm test
       - run: npm run typecheck
       - run: npm run build
-      - name: Package isolated source and runtime for review
+      - name: Install isolated browser verifier
         run: |
-          tar --exclude='./.git' --exclude='./.next' --exclude='./.env*' --exclude='./node_modules/.cache' -czf "$RUNNER_TEMP/portal-review.tgz" .
+          npm install --prefix "$RUNNER_TEMP/door-browser" --no-save --package-lock=false @playwright/test@1.57.0
+          "$RUNNER_TEMP/door-browser/node_modules/.bin/playwright" install --with-deps chromium firefox webkit
+      - name: Verify actual Next pages in Chromium, Firefox and WebKit
+        env:
+          NODE_PATH: ${{ runner.temp }}/door-browser/node_modules
+        run: node scripts/verify-door-browser.cjs
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: portal-review
-          path: ${{ runner.temp }}/portal-review.tgz
-          retention-days: 2
+          name: door-clock-evidence
+          path: artifacts/door-clock
+          retention-days: 7

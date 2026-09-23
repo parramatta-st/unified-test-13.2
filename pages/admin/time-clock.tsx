@@ -32,6 +32,10 @@ type Shift = {
   editCount: number;
   manual: boolean;
   reviewFlags: string[];
+  clockInAccessMethod?: string;
+  clockOutAccessMethod?: string;
+  clockInAccessPoint?: string;
+  clockOutAccessPoint?: string;
   clockInBy: string;
   clockOutBy: string;
   clockInPerformedAs: string;
@@ -510,6 +514,8 @@ export default function TimeClockAdmin() {
                                   <strong>
                                     {row.manual
                                       ? `Manual entry by ${row.clockInBy}`
+                                      : row.clockInAccessMethod === 'door_link'
+                                      ? 'Door NFC / QR link - location not required (name selected)'
                                       : row.clockInLocationVerified
                                       ? '✓ Location verified'
                                       : row.clockInAdminOverride
@@ -535,6 +541,8 @@ export default function TimeClockAdmin() {
                                       ? 'Still open'
                                       : row.manual
                                         ? `Manual entry by ${row.clockOutBy || row.clockInBy}`
+                                        : row.clockOutAccessMethod === 'door_link'
+                                        ? 'Door NFC / QR link - location not required (name selected)'
                                         : row.clockOutLocationVerified
                                         ? '✓ Location verified'
                                         : row.clockOutAdminOverride
