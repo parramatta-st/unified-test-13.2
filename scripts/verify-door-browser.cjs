@@ -130,14 +130,14 @@ function adminCookie() {
       });
       await check('stale action never silently toggles to the opposite action', async () => {
         const s = await scenario(browser, { remembered: choice }); await s.open(); s.state.stalePost = true;
-        await s.page.getByRole('button', { name: 'Clock In', exact: true }).click(); await expect(s.page.getByRole('alert')).toContainText('shift has changed');
+        await s.page.getByRole('button', { name: 'Clock In', exact: true }).click(); await expect(s.page.getByRole('main').getByRole('alert')).toContainText('shift has changed');
         assert.ok(s.page.url().includes('/clock/tap')); await s.page.getByRole('button', { name: 'Refresh shift' }).click();
         await expect(s.page.getByRole('button', { name: 'Clock Out', exact: true })).toBeEnabled(); assert.equal(s.state.posts.length, 1); await s.finish();
       });
       await check('failed status reads disable the action until a successful refresh', async () => {
         const s = await scenario(browser, { remembered: choice }); await s.open(); await expect(s.page.getByRole('button', { name: 'Clock In', exact: true })).toBeEnabled();
         s.state.failGet = true; await s.page.evaluate(() => window.dispatchEvent(new Event('focus')));
-        await expect(s.page.getByRole('alert')).toBeVisible(); await expect(s.page.getByRole('button', { name: 'Clock In', exact: true })).toBeDisabled();
+        await expect(s.page.getByRole('main').getByRole('alert')).toBeVisible(); await expect(s.page.getByRole('button', { name: 'Clock In', exact: true })).toBeDisabled();
         s.state.failGet = false; await s.page.getByRole('button', { name: 'Refresh shift' }).click(); await expect(s.page.getByRole('button', { name: 'Clock In', exact: true })).toBeEnabled(); await s.finish();
       });
       await check('missing/revoked keys fail closed with no clock POST', async () => {
