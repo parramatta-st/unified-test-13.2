@@ -667,7 +667,7 @@ export default function TimeClockAdmin() {
           <TimeClockShiftDialog
             mode={mode}
             tutors={tutors}
-            initialTutor={filterTutor || tutors[0]}
+            initialTutor={filterTutor}
             shift={editing}
             onClose={() => { setMode(''); setEditing(null); }}
             onSaved={(result) => {
@@ -676,7 +676,6 @@ export default function TimeClockAdmin() {
               setError('');
               const savedDate = result.shift?.clockIn ? sydneyDateKey(Date.parse(result.shift.clockIn)) : '';
               setSuccess(result.message + (savedDate && (savedDate < from || savedDate > to) ? ` This shift is on ${savedDate}, outside the selected payroll range. Change the range to view it.` : ''));
-              void load();
             }}
           />
         )}

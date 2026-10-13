@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { appendSheetRows, ensureSheetHeaders, readSheetRows, type SheetRow } from './googleSheets';
 import { TimeClockError, timeClockSpreadsheetId, isMissingTimeClockSheetError, tutorIdFor } from './timeClock';
 import { getActiveTutors } from './tutorConfig';
+import { addCalendarDays } from './timeClockCore';
 import { validateHapanaCapture, expectedSessions, normaliseHapanaName, type ExpectedSession } from './hapanaScheduleCore';
 
 export const HAPANA_HEADERS = ['eventId','campusKey','date','captureId','kind','serverAt','actorName','issuedAt','payload','eventHash'] as const;
@@ -14,7 +15,7 @@ function secret() {
   return `st-hapana-capture:${value}`;
 }
 export function issueCollectionTicket(campusKey: string, actorName: string, date: string, captureId: string, now = Date.now()) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^[A-Za-z0-9_-]{1,100}$/.test(captureId)) throw new TimeClockError(400,'INVALID_CAPTURE','Choose a valid date and capture ID.');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || addCalendarDays(date,0)!==date || !/^[A-Za-z0-9_-]{1,100}$/.test(captureId)) throw new TimeClockError(400,'INVALID_CAPTURE','Choose a valid date and capture ID.');
   const payload=Buffer.from(JSON.stringify({campusKey,actorName,date,captureId,issuedAt:now,expiresAt:now+2*60*60_000})).toString('base64url');
   return `${payload}.${crypto.createHmac('sha256',secret()).update(payload).digest('base64url')}`;
 }

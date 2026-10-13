@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createClockEvent, replayTimeClockEvents, buildPayrollRange, requestFingerprint } from '../lib/timeClock';
 import { parseTimeEntry, formatTimeEntry } from '../lib/timeClockEntry';
+import clockHandler from '../pages/api/admin/time-clock';
+import { fixtureSheets } from './helpers/timeClockSheets';
+import { createSessionToken, SESSION_COOKIE } from '../lib/session';
 const begin='2026-10-12T00:00:00.000Z';
 function event(action:string,extra:any={}) {
   const requestId=`approval_${action}_${Math.random().toString(36).slice(2)}`;
@@ -38,4 +41,21 @@ test('editing approved times invalidates approval, and an approval retry is idem
   const replay=replayTimeClockEvents([created,approval,approval]);assert.equal(replay.shifts[0].version,2);assert.equal(replay.adjustments.length,2);
   const edit=event('admin_edit',{baseVersion:'2',reason:'Correct end time',clockOut:'2026-10-12T09:30:00.000Z',occurredAt:'2026-10-12T11:00:00.000Z'});
   const changed=replayTimeClockEvents([created,approval,edit]);assert.equal(changed.shifts[0].approvedBy,'');assert.ok(changed.shifts[0].reviewFlags.includes('long_shift'));assert.equal(payroll(changed).summary[0].totalMinutes,0);
+});
+
+test('admin API holds long-shift payroll, audits approval, rejects tutors/stale approvals and invalidates edits',async t=>{
+  const fixture=fixtureSheets(t);process.env.TIME_CLOCK_REVIEW_HOURS='8';
+  try{
+    const admin=await createSessionToken({campus:'test-campus',tutor:'Demo Admin',role:'admin'}),tutor=await createSessionToken({campus:'test-campus',tutor:'Demo Tutor',role:'tutor'});
+    async function request(method:string,body:any={},token=admin){let status=200,data:any;const res={setHeader(){},status(n:number){status=n;return res;},json(j:any){data=j;return res;}};await clockHandler({method,body,query:{from:'2026-08-31',to:'2026-08-31'},headers:{cookie:`${SESSION_COOKIE}=${token}`,'content-type':'application/json'}} as any,res as any);return{status,data};}
+    const created=await request('POST',{action:'create_shift',requestId:'long_manual_api_1234567',tutorName:'Demo Tutor',clockIn:'2026-08-31T08:00',clockOut:'2026-08-31T17:00'});assert.equal(created.status,200);
+    assert.equal((await request('GET')).data.summary[0].totalMinutes,0);
+    const approval={action:'approve_shift',requestId:'long_approval_api_123456',shiftId:created.data.shift.shiftId,version:created.data.shift.version};
+    assert.equal((await request('POST',approval,tutor)).status,403);
+    const approved=await request('POST',approval);assert.equal(approved.status,200);assert.equal(approved.data.shift.approvedBy,'Demo Admin');assert.ok(!approved.data.shift.reviewFlags.includes('long_shift'));
+    assert.equal((await request('GET')).data.summary[0].totalMinutes,540);
+    assert.equal((await request('POST',approval)).data.replayed,true);
+    assert.equal((await request('POST',{...approval,requestId:'stale_approval_api_1234'})).status,409);
+    const edited=await request('POST',{action:'edit_shift',requestId:'long_edit_api_123456789',shiftId:created.data.shift.shiftId,version:approved.data.shift.version,reason:'Correct finish',clockIn:'2026-08-31T08:00',clockOut:'2026-08-31T18:00'});assert.equal(edited.status,200);assert.equal(edited.data.shift.approvedBy,'');assert.equal((await request('GET')).data.summary[0].totalMinutes,0);
+  }finally{fixture.restore();}
 });

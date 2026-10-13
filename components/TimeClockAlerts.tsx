@@ -18,15 +18,15 @@ export default function TimeClockAlerts() {
     try{
       const response=await fetch('/api/admin/hapana-schedule',{cache:'no-store',signal:controller.signal}),json=await response.json();
       if(!response.ok||!json.ok)throw new Error(json.error||'Could not check Time Clock alerts.');
-      if(mounted.current){setData(json);setError('');}
-    }catch(issue){if(mounted.current)setError(issue instanceof Error?issue.message:'Could not check Time Clock alerts.');}
-    finally{window.clearTimeout(timeout);request.current=null;}
+      if(mounted.current&&request.current===controller){setData(json);setError('');}
+    }catch(issue){if(mounted.current&&request.current===controller&&controller.signal.reason!=='unmounted')setError(issue instanceof Error?issue.message:'Could not check Time Clock alerts.');}
+    finally{window.clearTimeout(timeout);if(request.current===controller)request.current=null;}
   },[]);
   useEffect(()=>{
     mounted.current=true;void load();
     const refresh=()=>{void load();},interval=window.setInterval(refresh,60000);
     window.addEventListener('st-time-clock-refresh',refresh);window.addEventListener('focus',refresh);document.addEventListener('visibilitychange',refresh);
-    return()=>{mounted.current=false;window.clearInterval(interval);request.current?.abort();window.removeEventListener('st-time-clock-refresh',refresh);window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh);};
+    return()=>{mounted.current=false;window.clearInterval(interval);request.current?.abort('unmounted');request.current=null;window.removeEventListener('st-time-clock-refresh',refresh);window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh);};
   },[load]);
   async function saveMapping(name:string) {
     if(mappingBusy||!mapping[name])return;setMappingBusy(true);
