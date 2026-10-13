@@ -45,7 +45,7 @@ export function expectedSessions(capture: HapanaCapture): ExpectedSession[] {
     const date = minute === 1440 ? addCalendarDays(capture.date, 1) : capture.date;
     const value = `${date}T${String(Math.floor((minute % 1440) / 60)).padStart(2,'0')}:${String(minute % 60).padStart(2,'0')}`;
     const parsed = parseSydneyDateTime(value);
-    if (!parsed.ok) throw new Error(parsed.error);
+    if (parsed.ok === false) throw new Error(parsed.error);
     return parsed.iso;
   };
   return capture.sessions.map(s => ({sessionId:s.hapanaSessionId,date:capture.date,title:s.sessionTitle,tutorNameRaw:s.tutorNameRaw,tutorName:s.tutorName,startAt:at(s.startMinute),endAt:at(s.endMinute),observedAt:capture.completedAt,importId:capture.captureId}));
