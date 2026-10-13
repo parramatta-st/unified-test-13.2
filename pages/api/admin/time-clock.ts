@@ -106,7 +106,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         throw new TimeClockError(400, 'INVALID_DATE_RANGE', range.error);
       }
       const tutors = await getActiveTutors(admin.campus);
-      const config = publicTimeClockConfig();
+      const config = publicTimeClockConfig(admin.campus);
       if (!config.sheets) {
         return res.status(200).json({
           ok: true,
@@ -166,11 +166,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       );
     }
     const action = lower(req.body?.action);
-    if (!['create_shift', 'edit_shift', 'void_shift'].includes(action)) {
+    if (!['create_shift', 'edit_shift', 'void_shift', 'approve_shift'].includes(action)) {
       throw new TimeClockError(400, 'UNKNOWN_ACTION', 'Unknown admin action.');
     }
     const reason = cleanText(req.body?.reason, 'Reason', 1_000);
-    if (action !== 'create_shift' && !reason) {
+    if (!['create_shift', 'approve_shift'].includes(action) && !reason) {
       throw new TimeClockError(
         400,
         'REASON_REQUIRED',
@@ -266,7 +266,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return {
           tutorId: current.tutorId,
           tutorName: current.tutorName,
-          action: action === 'edit_shift' ? 'admin_edit' : 'admin_void',
+          action: action === 'edit_shift' ? 'admin_edit' : action === 'approve_shift' ? 'admin_approve' : 'admin_void',
           occurredAt,
           targetShiftId: current.shiftId,
           baseVersion: String(requestedVersion),
@@ -275,7 +275,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           notes,
           adminOverride: 'TRUE',
           overrideReason: reason,
-          reason,
+          reason: action === 'approve_shift' ? reason || 'Admin confirmed the recorded shift hours.' : reason,
         };
       },
     });
@@ -295,6 +295,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       create_shift: 'Manual shift created and added to the audit history.',
       edit_shift: 'Shift corrected and adjustment history saved.',
       void_shift: 'Shift voided without deleting its history.',
+      approve_shift: 'Shift hours approved and approval saved to the audit history.',
     };
     return res.status(200).json({
       ok: true,
@@ -307,3 +308,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return sendError(res, error);
   }
 }
+

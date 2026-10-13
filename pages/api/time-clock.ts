@@ -140,7 +140,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
       const tutors = await getActiveTutors(auth.campus);
       const self = exactTutor(tutors, auth.tutor);
-      const config = publicTimeClockConfig();
+      const config = publicTimeClockConfig(auth.campus);
       if (!config.sheets) {
         return res.status(200).json({
           ok: true,
@@ -363,3 +363,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return sendError(res, error);
   }
 }
+

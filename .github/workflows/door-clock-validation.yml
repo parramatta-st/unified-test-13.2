@@ -1,7 +1,7 @@
 name: Door Time Clock validation
 on:
   push:
-    branches: [feature/door-tap-clock-20260924]
+    branches: [feature/door-tap-clock-20260924, feature/time-clock-hapana-20261013]
   pull_request:
     branches: [main]
 permissions:
@@ -41,3 +41,4 @@ jobs:
           name: door-clock-evidence
           path: artifacts/door-clock
           retention-days: 7
+
