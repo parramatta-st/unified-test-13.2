@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createClockEvent, replayTimeClockEvents, buildPayrollRange, requestFingerprint } from '../lib/timeClock';
+import { createClockEvent, replayTimeClockEvents, buildPayrollRange, requestFingerprint, publicTimeClockConfig } from '../lib/timeClock';
 import { parseTimeEntry, formatTimeEntry } from '../lib/timeClockEntry';
 import clockHandler from '../pages/api/admin/time-clock';
 import { fixtureSheets } from './helpers/timeClockSheets';
@@ -11,6 +11,11 @@ function event(action:string,extra:any={}) {
   return createClockEvent({requestId,requestFingerprint:requestFingerprint({requestId}),campusKey:'parramatta',tutorId:'kevin',tutorName:'Kevin',actorName:'Admin',actorRole:'admin',targetShiftId:'shift_1',occurredAt:begin,clockIn:begin,clockOut:'2026-10-12T09:00:00.000Z',action,...extra});
 }
 const payroll=(r:any)=>buildPayrollRange({state:{...r,sourceFingerprint:'',rawEventCount:r.events.length},campusKey:'parramatta',startMs:Date.parse(begin),endMs:Date.parse('2026-10-13T00:00:00Z')});
+test('new duration review and payroll holds are campus-scoped; other centres retain their existing rules',()=>{
+  assert.equal(publicTimeClockConfig('parramatta').longShiftHours,8);assert.equal(publicTimeClockConfig('other-campus').longShiftHours,16);
+  const r=replayTimeClockEvents([event('admin_create',{campusKey:'other-campus'})]);assert.ok(!r.shifts[0].reviewFlags.includes('long_shift'));
+  const p=buildPayrollRange({state:{...r,sourceFingerprint:'',rawEventCount:r.events.length},campusKey:'other-campus',startMs:Date.parse(begin),endMs:Date.parse('2026-10-13T00:00:00Z')});assert.equal(p.summary[0].totalMinutes,540);
+});
 test('manual time fields accept explicit everyday and 24-hour formats, rejecting ambiguity',()=>{
   for(const [input,expected] of [['4pm','16:00'],['4:30 pm','16:30'],['4.30PM','16:30'],['16:30','16:30'],['12am','00:00'],['12:05 pm','12:05'],['00:15','00:15']])assert.equal(parseTimeEntry(input),expected,input);
   for(const input of ['4','25:00','13pm','4:60pm','4:3pm','abc','-1am',''])assert.equal(parseTimeEntry(input),null,input);
@@ -44,7 +49,7 @@ test('editing approved times invalidates approval, and an approval retry is idem
 });
 
 test('admin API holds long-shift payroll, audits approval, rejects tutors/stale approvals and invalidates edits',async t=>{
-  const fixture=fixtureSheets(t);process.env.TIME_CLOCK_REVIEW_HOURS='8';
+  const fixture=fixtureSheets(t);process.env.TIME_CLOCK_REVIEW_HOURS='8';process.env.TIME_CLOCK_REVIEW_CAMPUS_KEY='test-campus';
   try{
     const admin=await createSessionToken({campus:'test-campus',tutor:'Demo Admin',role:'admin'}),tutor=await createSessionToken({campus:'test-campus',tutor:'Demo Tutor',role:'tutor'});
     async function request(method:string,body:any={},token=admin){let status=200,data:any;const res={setHeader(){},status(n:number){status=n;return res;},json(j:any){data=j;return res;}};await clockHandler({method,body,query:{from:'2026-08-31',to:'2026-08-31'},headers:{cookie:`${SESSION_COOKIE}=${token}`,'content-type':'application/json'}} as any,res as any);return{status,data};}

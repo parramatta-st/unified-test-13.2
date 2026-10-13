@@ -8,6 +8,7 @@ import { readSheetRows } from '../lib/googleSheets';
 import { replayScheduleEvents } from '../lib/hapanaSchedule';
 test('signed schedule import, substitution, mapping, retries, stale collections and marker handling through the real API and Sheets adapters',async t=>{
  const fixture=fixtureSheets(t);
+ process.env.HAPANA_SCHEDULE_CAMPUS_KEY='test-campus';
  try{
   const admin=await createSessionToken({campus:'test-campus',tutor:'Demo Admin',role:'admin'}),tutor=await createSessionToken({campus:'test-campus',tutor:'Demo Tutor',role:'tutor'});
   async function request(method:string,body:any={},token=admin,route=handler){let status=200,data:any;const res={setHeader(){},status(n:number){status=n;return res;},json(j:any){data=j;return res;}};await route({method,body,query:{},headers:{cookie:`${SESSION_COOKIE}=${token}`,'content-type':'application/json'}} as any,res as any);return{status,data};}

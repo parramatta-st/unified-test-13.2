@@ -78,7 +78,7 @@ async function scenario(browser, options = {}) {
     if (pathname === '/api/admin/hapana-schedule') return send({ok:true,missing:[],longShifts:state.longShifts||[],unmapped:[],tutors:roster.map(t=>t.name),warnings:[],todaySynced:true,todayFullDay:true,lastSync:'',days:[]});
     if (pathname === '/api/admin/time-clock') {
       if(request.method()==='POST'){state.posts.push(request.postDataJSON());return send({ok:true,message:'Entry saved.',shift:null});}
-      return send({ok:true,rows:[],summary:[],adjustments:[],integrityWarnings:[],tutors:roster.map(t=>t.name),config:{sheets:true,geofence:true,credentials:true,longShiftHours:8,openShiftAlertHours:8}});
+      return send({ok:true,rows:[],summary:[],adjustments:[],integrityWarnings:[],tutors:roster.map(t=>t.name),config:{sheets:true,geofence:true,credentials:true,longShiftHours:8,openShiftAlertHours:8,durationApprovalEnabled:true}});
     }
     throw new Error(`Unexpected API call ${pathname}`);
   });

@@ -333,6 +333,10 @@ export function timeClockSpreadsheetId() {
   return spreadsheetIdFor('TIME_CLOCK');
 }
 
+export function durationReviewEnabled(campusKey: string) {
+  return lower(campusKey) === lower(process.env.TIME_CLOCK_REVIEW_CAMPUS_KEY || 'parramatta');
+}
+
 export function timeClockConfigured() {
   const rawLatitude = norm(process.env.TIME_CLOCK_LATITUDE);
   const rawLongitude = norm(process.env.TIME_CLOCK_LONGITUDE);
@@ -379,10 +383,12 @@ export function timeClockConfigured() {
       4,
       168,
     ),
+    legacyLongShiftHours: boundedNumber(process.env.TIME_CLOCK_LONG_SHIFT_HOURS, 16, 4, 168),
+    legacyOpenShiftAlertHours: boundedNumber(process.env.TIME_CLOCK_OPEN_SHIFT_ALERT_HOURS, 12, 2, 168),
   };
 }
 
-export function publicTimeClockConfig() {
+export function publicTimeClockConfig(campusKey = 'parramatta') {
   const config = timeClockConfigured();
   return {
     sheets: config.sheets,
@@ -392,8 +398,9 @@ export function publicTimeClockConfig() {
     geofenceError: config.geofenceError,
     radiusM: config.radiusM,
     maxAccuracyM: config.maxAccuracyM,
-    longShiftHours: config.longShiftHours,
-    openShiftAlertHours: config.openShiftAlertHours,
+    longShiftHours: durationReviewEnabled(campusKey) ? config.longShiftHours : config.legacyLongShiftHours,
+    openShiftAlertHours: durationReviewEnabled(campusKey) ? config.openShiftAlertHours : config.legacyOpenShiftAlertHours,
+    durationApprovalEnabled: durationReviewEnabled(campusKey),
     sheetNames: timeClockSheetNames(),
   };
 }
@@ -1027,6 +1034,7 @@ function applyEvent(
   }
 
   if (action === 'admin_approve') {
+    if (!durationReviewEnabled(shift.campusKey)) return rejected('APPROVAL_NOT_ENABLED', 'Duration approval is not enabled for this campus.', shift.shiftId);
     const startMs = instant(shift.clockIn), endMs = instant(shift.clockOut);
     if (shift.status !== 'completed' || !Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs || endMs > eventMs + 5 * 60_000) {
       return rejected('COMPLETE_SHIFT_REQUIRED', 'Enter valid completed shift times before approving hours.', shift.shiftId);
@@ -1047,6 +1055,8 @@ function calculateReviewFlags(
   nowMs: number,
   longShiftHours: number,
   openShiftAlertHours: number,
+  legacyLongShiftHours: number,
+  legacyOpenShiftAlertHours: number,
 ) {
   for (const shift of shifts) {
     if (shift.status === 'voided') {
@@ -1054,6 +1064,7 @@ function calculateReviewFlags(
       continue;
     }
     const flags = new Set<string>();
+    const reviewEnabled = durationReviewEnabled(shift.campusKey);
     const startMs = instant(shift.clockIn);
     const endMs = shift.clockOut ? instant(shift.clockOut) : Number.NaN;
     if (!Number.isFinite(startMs) || (shift.clockOut && (!Number.isFinite(endMs) || endMs <= startMs))) {
@@ -1063,14 +1074,14 @@ function calculateReviewFlags(
       flags.add('future_clock_in');
     }
     if (shift.status === 'active' && Number.isFinite(startMs)) {
-      if (durationHours(startMs, nowMs) > openShiftAlertHours) {
+      if (reviewEnabled ? durationHours(startMs, nowMs) > openShiftAlertHours : durationHours(startMs, nowMs) >= legacyOpenShiftAlertHours) {
         flags.add('open_over_limit');
       }
     } else if (
       shift.clockOut &&
       Number.isFinite(startMs) &&
       Number.isFinite(endMs) &&
-      durationHours(startMs, endMs) > longShiftHours &&
+      (reviewEnabled ? durationHours(startMs, endMs) > longShiftHours : durationHours(startMs, endMs) >= legacyLongShiftHours) &&
       !(shift.approvedBy && shift.approvedAt && shift.approvedClockIn === shift.clockIn && shift.approvedClockOut === shift.clockOut)
     ) {
       flags.add('long_shift');
@@ -1213,6 +1224,8 @@ export function replayTimeClockEvents(
     options.nowMs ?? Date.now(),
     options.longShiftHours ?? config.longShiftHours,
     options.openShiftAlertHours ?? config.openShiftAlertHours,
+    options.longShiftHours ?? config.legacyLongShiftHours,
+    options.openShiftAlertHours ?? config.legacyOpenShiftAlertHours,
   );
   return {
     events,
@@ -1636,7 +1649,7 @@ export function buildPayrollRange(options: {
   for (const row of rows) {
     const completed = row.status === 'completed' && row.rangeElapsedHours > 0;
     if (!completed && !(row.status === 'active' && row.reviewFlags.length)) continue;
-    const payable = completed && !row.reviewFlags.some(flag => ['long_shift', 'invalid_timestamps', 'future_clock_in', 'overlapping_shift'].includes(flag));
+    const payable = completed && (!durationReviewEnabled(row.campusKey) || !row.reviewFlags.some(flag => ['long_shift', 'invalid_timestamps', 'future_clock_in', 'overlapping_shift'].includes(flag)));
     const key = `${lower(row.campusKey)}|${row.tutorId || lower(row.tutorName)}`;
     const current = summaryMap.get(key) || {
       premiumMinutes: 0,

@@ -106,7 +106,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         throw new TimeClockError(400, 'INVALID_DATE_RANGE', range.error);
       }
       const tutors = await getActiveTutors(admin.campus);
-      const config = publicTimeClockConfig();
+      const config = publicTimeClockConfig(admin.campus);
       if (!config.sheets) {
         return res.status(200).json({
           ok: true,

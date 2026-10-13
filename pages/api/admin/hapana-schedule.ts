@@ -12,6 +12,7 @@ export default async function handler(req: NextApiRequest,res: NextApiResponse) 
   const admin=await requireAdmin(req);
   if(!admin.authed)return res.status(401).json({ok:false,error:'Sign in to the portal as an admin, then retry syncing the rolls.'});
   if(!admin.isAdmin)return res.status(403).json({ok:false,error:'Only an admin can sync and review tutor schedules.'});
+  if(admin.campus!==(process.env.HAPANA_SCHEDULE_CAMPUS_KEY||'parramatta'))return res.status(403).json({ok:false,error:'Hapana schedule sync is enabled for Parramatta only.'});
   if(!['GET','POST'].includes(req.method||'')){res.setHeader('Allow','GET, POST');return res.status(405).json({ok:false,error:'Method not allowed.'});}
   try {
     if(!timeClockConfigured().sheets)throw new TimeClockError(503,'STORAGE_NOT_CONFIGURED','Time Clock storage is not configured.');

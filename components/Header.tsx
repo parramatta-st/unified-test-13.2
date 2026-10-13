@@ -10,6 +10,7 @@ export default function Header(){
   const [tutor,setTutor] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [clockAlertsEnabled, setClockAlertsEnabled] = useState(false);
 
   const loadUnread = useCallback(async () => {
     try {
@@ -50,6 +51,7 @@ export default function Header(){
         if (cancelled) return;
         const admin = !!j?.isAdmin;
         setIsAdmin(admin);
+        setClockAlertsEnabled(admin && String(j?.campus || '').toLowerCase() === 'parramatta');
         try { localStorage.setItem('st_is_admin', admin ? '1' : '0'); } catch {}
         if (admin) {
           // The Inbox page already polls /api/sent-feedback and dispatches its
@@ -201,7 +203,7 @@ export default function Header(){
           }
         }
       `}</style>
-    </header>{isAdmin && !hideNav && <TimeClockAlerts />}</>
+    </header>{clockAlertsEnabled && !hideNav && <TimeClockAlerts />}</>
   );
 }
 

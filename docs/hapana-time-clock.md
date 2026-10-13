@@ -41,7 +41,7 @@ Only the group classes included by Daily Rolls are covered. Assessments/diagnost
 
 ## Eight-hour review and payroll
 
-The default unified threshold is eight hours. `TIME_CLOCK_REVIEW_HOURS` can configure it; the old separate `TIME_CLOCK_LONG_SHIFT_HOURS` and `TIME_CLOCK_OPEN_SHIFT_ALERT_HOURS` no longer control it.
+For Parramatta, the default unified threshold is eight hours. `TIME_CLOCK_REVIEW_HOURS` can configure it; the old separate `TIME_CLOCK_LONG_SHIFT_HOURS` and `TIME_CLOCK_OPEN_SHIFT_ALERT_HOURS` no longer control Parramatta’s rule. The new duration-review/payroll-hold policy is scoped by `TIME_CLOCK_REVIEW_CAMPUS_KEY` (default `parramatta`); other campuses keep their existing thresholds and payroll behaviour. Hapana imports are separately limited by `HAPANA_SCHEDULE_CAMPUS_KEY` (default `parramatta`).
 
 Exactly eight hours is clear. More than eight hours, including one additional second, raises duration review. Open shifts add no payroll hours and need a real finish time before approval. Completed long shifts are omitted from payroll summary/export until an admin explicitly approves the recorded hours.
 
