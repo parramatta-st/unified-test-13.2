@@ -55,6 +55,8 @@ type Shift = {
   voidedAt: string;
   voidedBy: string;
   voidReason: string;
+  approvedAt?: string;
+  approvedBy?: string;
 };
 
 type Summary = {
@@ -77,7 +79,7 @@ type Summary = {
 type Adjustment = {
   adjustmentId: string;
   shiftId: string;
-  action: 'created' | 'edited' | 'voided';
+  action: 'created' | 'edited' | 'voided' | 'approved';
   changedAt: string;
   changedBy: string;
   reason: string;
@@ -89,7 +91,7 @@ type Adjustment = {
   newStatus: string;
 };
 
-type EditMode = 'create' | 'edit' | 'void' | '';
+type EditMode = 'create' | 'edit' | 'void' | 'approve' | '';
 
 function formatDate(value: string) {
   if (!value) return '—';
@@ -200,6 +202,12 @@ export default function TimeClockAdmin() {
       loadSequence.current += 1;
       setLoading(false);
     }
+  }, [from, to]);
+
+  useEffect(() => {
+    const refresh = () => { if (!rangeError) void load(); };
+    window.addEventListener('st-time-clock-refresh', refresh);
+    return () => window.removeEventListener('st-time-clock-refresh', refresh);
   }, [from, to]);
 
   const visibleRows = useMemo(
@@ -368,7 +376,7 @@ export default function TimeClockAdmin() {
             <div>
               <h2 className="section-title tc-small-title">Payroll summary</h2>
               <p className="text-muted text-sm">
-                Weekday hours from 7 PM and all Saturday hours are combined. Each minute is counted once.
+                Weekday hours from 7 PM and all Saturday hours are combined. Shifts over eight hours are excluded until an admin approves their hours.
               </p>
             </div>
             <button
@@ -464,6 +472,8 @@ export default function TimeClockAdmin() {
                             {row.manual && <span className="tc-clipped">Manual entry</span>}
                             {row.edited && (!row.manual || row.editCount > 1) && <span className="tc-edited">Adjusted</span>}
                             {row.rangeClipped && <span className="tc-clipped">Range split</span>}
+                            {row.approvedBy && <span className="tc-clipped">Hours approved by {row.approvedBy}</span>}
+                            {row.reviewFlags.includes('long_shift') && <span className="tc-needs-review">Held from payroll</span>}
                           </div>
                         </td>
                         <td>{formatDate(row.clockIn)}</td>
@@ -628,6 +638,7 @@ export default function TimeClockAdmin() {
                                     <button className="btn" onClick={() => openEdit(row)}>
                                       Edit times
                                     </button>
+                                    {row.status === 'completed' && row.reviewFlags.includes('long_shift') && <button className="btn" onClick={() => { setMode('approve'); setEditing(row); }}>Approve hours</button>}
                                     <button
                                       className="btn tc-void-button"
                                       onClick={() => openVoid(row)}
@@ -683,3 +694,4 @@ export default function TimeClockAdmin() {
     </div>
   );
 }
+

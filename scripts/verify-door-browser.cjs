@@ -75,6 +75,11 @@ async function scenario(browser, options = {}) {
     if (pathname === '/api/tutors') return send({ ok: true, tutors: roster.map(t => ({ tutorName: t.name, campusKey: campus, campusName: 'Parramatta' })), campuses: [{ id: campus, name: 'Parramatta' }] });
     if (pathname === '/api/time-clock') return send({ ok: true, tutor: 'Demo Admin', campus, activeShift: null, isAdmin: true, tutors: [], config: { sheets: false, geofence: false } });
     if (pathname === '/api/inbox-unread') return send({ ok: true, unreadTotal: 0 });
+    if (pathname === '/api/admin/hapana-schedule') return send({ok:true,missing:[],longShifts:state.longShifts||[],unmapped:[],tutors:roster.map(t=>t.name),warnings:[],todaySynced:true,todayFullDay:true,lastSync:'',days:[]});
+    if (pathname === '/api/admin/time-clock') {
+      if(request.method()==='POST'){state.posts.push(request.postDataJSON());return send({ok:true,message:'Entry saved.',shift:null});}
+      return send({ok:true,rows:[],summary:[],adjustments:[],integrityWarnings:[],tutors:roster.map(t=>t.name),config:{sheets:true,geofence:true,credentials:true,longShiftHours:8,openShiftAlertHours:8}});
+    }
     throw new Error(`Unexpected API call ${pathname}`);
   });
   async function open(withKey = true) { await page.goto(`${base}/clock/tap${withKey ? `#key=${key}` : ''}`); }
@@ -175,6 +180,34 @@ function adminCookie() {
         await s.snapshot('admin-setup');
         await s.page.setViewportSize({ width: 390, height: 844 }); assert.ok(await s.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)); await s.snapshot('admin-mobile'); await s.finish();
       });
+      await check('manual entry accepts normal typed times, optional notes and exact payroll payload', async () => {
+        const s=await scenario(browser,{admin:true,viewport:{width:1280,height:900}});
+        await s.context.addCookies([{name:'st_sess',value:adminCookie(),url:base,httpOnly:true,sameSite:'Lax'}]);
+        await s.page.goto(base+'/admin/time-clock');await s.page.getByRole('button',{name:'+ Add manual entry',exact:true}).click();
+        const dialog=s.page.getByRole('dialog');await expect(dialog).toBeVisible();
+        await expect(dialog.getByLabel('Team member')).toHaveValue('');
+        await dialog.getByLabel('Team member').selectOption('Moli Example');await dialog.getByRole('button',{name:'Yesterday',exact:true}).click();
+        await dialog.getByLabel('Start time',{exact:true}).fill('4');await dialog.getByLabel('End time',{exact:true}).fill('8pm');await dialog.getByRole('button',{name:'Save entry',exact:true}).click();
+        await expect(dialog.getByText(/Start time: enter a time/).first()).toBeVisible();assert.equal(s.state.posts.length,0);
+        await dialog.getByLabel('Start time',{exact:true}).fill('4:30 pm');await dialog.getByLabel('End time',{exact:true}).fill('20:30');
+        await expect(dialog.getByText('Total time: 4h 0m',{exact:true})).toBeVisible();await s.snapshot('manual-entry-typed');
+        await dialog.getByRole('button',{name:'Save entry',exact:true}).click();await expect(dialog).toHaveCount(0);
+        assert.equal(s.state.posts.length,1);assert.equal(s.state.posts[0].tutorName,'Moli Example');assert.ok(s.state.posts[0].clockIn.endsWith('T16:30'));assert.ok(s.state.posts[0].clockOut.endsWith('T20:30'));assert.equal(s.state.posts[0].reason,'');await s.finish();
+      });
+      await check('manual entry shortcuts, phone layout, scrolling and Escape stay usable', async () => {
+        const s=await scenario(browser,{admin:true,viewport:{width:390,height:844}});await s.context.addCookies([{name:'st_sess',value:adminCookie(),url:base,httpOnly:true,sameSite:'Lax'}]);
+        await s.page.goto(base+'/admin/time-clock');await s.page.getByRole('button',{name:'+ Add manual entry',exact:true}).click();const dialog=s.page.getByRole('dialog');
+        await dialog.getByRole('button',{name:'4–8 pm',exact:true}).click();await expect(dialog.getByLabel('Start time',{exact:true})).toHaveValue('4:00 pm');await expect(dialog.getByLabel('End time',{exact:true})).toHaveValue('8:00 pm');
+        assert.ok(await s.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await dialog.getByRole('button',{name:'Save entry',exact:true}).scrollIntoViewIfNeeded();await s.snapshot('manual-entry-mobile');
+        await dialog.press('Escape');await expect(dialog).toHaveCount(0);assert.equal(s.state.posts.length,0);assert.notEqual(await s.page.evaluate(()=>document.body.style.overflow),'hidden');await s.finish();
+      });
+      await check('long-shift alert opens explicit approval dialog and sends versioned approval', async () => {
+        const s=await scenario(browser,{admin:true,viewport:{width:1280,height:900}});s.state.longShifts=[{shiftId:'shift-long',tutorName:'Moli Example',clockIn:'2026-10-12T00:00:00Z',clockOut:'2026-10-12T09:00:00Z',version:2,reviewFlags:['long_shift']}];
+        await s.context.addCookies([{name:'st_sess',value:adminCookie(),url:base,httpOnly:true,sameSite:'Lax'}]);await s.page.goto(base+'/admin/time-clock');
+        await s.page.getByRole('button',{name:/Time Clock alerts/}).click();await s.page.getByRole('button',{name:'Approve hours',exact:true}).click();
+        const dialog=s.page.getByRole('dialog');await expect(dialog.getByRole('heading',{name:'Approve Moli Example’s hours'})).toBeVisible();await s.snapshot('approve-hours');await dialog.getByRole('button',{name:'Approve hours',exact:true}).click();
+        await expect(dialog).toHaveCount(0);assert.equal(s.state.posts[0].action,'approve_shift');assert.equal(s.state.posts[0].version,2);assert.equal(s.state.posts[0].clockIn,'');await s.finish();
+      });
       await browser.close();
     }
     browserName = 'http';
@@ -194,3 +227,4 @@ function adminCookie() {
     if (failed.length) process.exitCode = 1;
   }
 })();
+

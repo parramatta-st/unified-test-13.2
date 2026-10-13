@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
 import TimeClockButton from './TimeClockButton';
+import TimeClockAlerts from './TimeClockAlerts';
 import { clearTimeClockStatus } from '../lib/timeClockClientState';
 
 export default function Header(){
@@ -99,7 +100,7 @@ export default function Header(){
   }
 
   return (
-    <header className="header">
+    <><header className="header">
       <div className="header-inner container" style={{paddingLeft:'1rem', paddingRight:'1rem'}}>
         <Link href="/" className="brand brand-link" prefetch={false} aria-label="Success Tutoring Portal home">
           <span className="brand-mark" aria-hidden="true">ST</span>
@@ -200,6 +201,7 @@ export default function Header(){
           }
         }
       `}</style>
-    </header>
+    </header>{isAdmin && !hideNav && <TimeClockAlerts />}</>
   );
 }
+

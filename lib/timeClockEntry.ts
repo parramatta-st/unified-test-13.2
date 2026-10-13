@@ -13,6 +13,28 @@ export function localShiftInput(value: string) {
   return `${sydneyDateKey(ms)}T${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}`;
 }
 
+/** Explicit AM/PM or 24-hour time; ambiguous bare 1–12 values are rejected. */
+export function parseTimeEntry(value: string): string | null {
+  const text = String(value || '').trim().toLowerCase().replace(/\s+/g, '').replace(/\./g, ':');
+  const match = text.match(/^(\d{1,2})(?::(\d{2}))?(am|pm)?$/);
+  if (!match) return null;
+  let hour = Number(match[1]);
+  const minute = Number(match[2] || 0), meridiem = match[3];
+  if (minute > 59) return null;
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return null;
+    hour = hour % 12 + (meridiem === 'pm' ? 12 : 0);
+  } else if (match[2] === undefined || hour > 23) return null;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+export function formatTimeEntry(value: string) {
+  const parsed = parseTimeEntry(value);
+  if (!parsed) return value;
+  const [hour, minute] = parsed.split(':').map(Number);
+  return `${hour % 12 || 12}:${String(minute).padStart(2, '0')} ${hour < 12 ? 'am' : 'pm'}`;
+}
+
 type TimeError = { code: string; error: string };
 
 /** Validate new admin writes. Historical ledger events retain their original times. */
@@ -51,3 +73,4 @@ export function checkShiftEntry(clockIn: string, clockOut: string, requireEnd: b
   if (error) return { ok: false as const, ...error };
   return { ok: true as const, startMs: start.ms, endMs };
 }
+
