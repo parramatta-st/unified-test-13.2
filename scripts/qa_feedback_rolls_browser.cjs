@@ -56,7 +56,9 @@ const html=e=>`<${e.tagName.toLowerCase()} ${Object.entries(e.attrs).map(([k,v])
    if(url.pathname==='/api/time-clock')return route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,activeShift:null,shifts:[],history:[]})});
    if(url.pathname==='/api/inbox-unread')return route.fulfill({contentType:'application/json',body:'{"ok":true,"count":0,"unreadCount":0}'});
    if(url.pathname==='/api/admin/feedback-rolls'&&request.method()==='POST'&&request.postDataJSON().action==='import_feedback_schedule')imports.push(request.postDataJSON().capture);
-   return route.fulfill(await localRequest(request));
+   const response=await localRequest(request);
+   if(url.pathname==='/api/admin/feedback-rolls')console.log('Fictional portal API:',request.method()==='POST'?request.postDataJSON().action:'overview',response.status);
+   return route.fulfill(response);
  });
  await context.route('https://core.hapana.com/**',route=>{
    const url=new URL(route.request().url()),eid=url.searchParams.get('eid')||'100',f=fixture({eid,tutor:eid==='100'?tutor:'Other Tutor'});
@@ -68,7 +70,10 @@ const html=e=>`<${e.tagName.toLowerCase()} ${Object.entries(e.attrs).map(([k,v])
  await worker.evaluate(()=>{const create=chrome.tabs.create.bind(chrome.tabs);chrome.tabs.create=async options=>{if(options.url?.startsWith('https://')){const tab=await create({...options,url:'about:blank'});await new Promise(r=>setTimeout(r,300));return chrome.tabs.update(tab.id,{url:options.url});}return create(options);};});
  portal=await context.newPage();const errors=[];portal.on('pageerror',error=>errors.push(error.message));
  await portal.clock.install({time:new Date(DATE+'T03:00:00Z')});
- await portal.goto(PORTAL+'/admin/feedback-schedule');await portal.getByLabel('Saved date',{exact:true}).fill(DATE);
+ await portal.goto(PORTAL+'/admin/feedback-schedule');
+ const savedDate=portal.getByLabel('Saved date',{exact:true});
+ if(await savedDate.inputValue()!==DATE)await savedDate.fill(DATE);
+ await portal.getByRole('button',{name:'Refresh saved day'}).click();
  await portal.getByText(/No student bookings have synced/).waitFor();
  const source=await context.newPage();await source.goto('https://core.hapana.com/index.php?route=dashboard/schedule&view=day');
  const sourceId=await worker.evaluate(async()=>{const tabs=await chrome.tabs.query({url:'https://core.hapana.com/*'});return tabs.find(tab=>tab.url.includes('view=day')).id;});

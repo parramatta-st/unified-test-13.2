@@ -35,7 +35,7 @@ export default function FeedbackScheduleSetup() {
   return <><Header /><main className="container"><div className="card">
     <h2 className="section-title">Daily Rolls → Feedback</h2>
     <p className="text-muted">1. Sign in here as an admin in the same Chrome profile as Hapana. 2. Collect the day using Daily Rolls 0.6.0 or later. 3. Link any names below.</p>
-    <div className="feedback-schedule-toolbar"><label>Saved date<input className="input" type="date" aria-label="Saved date" value={date} disabled={busy} onChange={event => { setData(null); setMessage(''); setDate(event.target.value); }} /></label><button className="btn" disabled={busy} onClick={() => { setDate(today()); setMessage(''); }}>Today</button><button className="btn" disabled={busy} onClick={() => void load()}>{busy ? 'Loading…' : 'Refresh saved day'}</button></div>
+    <div className="feedback-schedule-toolbar"><label>Saved date<input className="input" type="date" aria-label="Saved date" value={date} disabled={busy} onChange={event => { const next = event.target.value; if (next !== date) { setData(null); setMessage(''); setDate(next); } }} /></label><button className="btn" disabled={busy} onClick={() => { setDate(today()); setMessage(''); }}>Today</button><button className="btn" disabled={busy} onClick={() => void load()}>{busy ? 'Loading…' : 'Refresh saved day'}</button></div>
     {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
     {data && !data.lastSync && <p>No student bookings have synced for this day. Collect this date in the updated Daily Rolls extension, then refresh here.</p>}
     {data?.lastSync && <>
