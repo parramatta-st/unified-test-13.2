@@ -5,7 +5,9 @@ This change retains this repository's Inbox, time-clock, payroll, authentication
 
 ## Feedback student views
 
-The always-visible **My schedule / All students** switch changes only how a student is found. It preserves the selected recipient and existing draft. The preference is remembered per verified campus/tutor in that browser. My schedule starts with today's Sydney date and supports another date, Today and Refresh. All students retains the existing searchable Student picker and recent students.
+The **My schedule / All students** switch sits to the right of the Parent Feedback heading and appears only after the authenticated roster confirms a booking for the tutor today (Sydney time). It wraps below the heading on narrow phones. With no booking, missing setup, a pending request or an unavailable schedule, the normal student picker remains available without a switch or schedule error box. The current day is checked again when the date changes while the page stays open.
+
+The switch changes only how a student is found. It preserves the selected recipient and existing draft, including when a refresh removes today's booking. The preference is remembered per verified campus/tutor in that browser. My schedule starts with today's Sydney date and supports another date, Today and Refresh. Browsing another date does not change eligibility based on today's bookings. All students retains the existing searchable Student picker and recent students.
 
 Unlike the reference Epping repository, this repository did not contain a student timetable. The new authenticated read-only `/api/feedback-schedule` adapter accepts the compatible roster format below. It does not import Epping records, create bookings, add an administration grid or integrate student bookings from Hapana. The earlier tutor-only Hapana/time-clock work remains a separate branch.
 

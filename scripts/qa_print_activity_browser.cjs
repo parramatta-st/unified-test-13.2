@@ -20,6 +20,13 @@ async function testViewport(browser,viewport){
  await ctx.addCookies([{name:'st_sess',value:token(),url:ORIGIN,httpOnly:true,sameSite:'Lax'}]);
  const page=await ctx.newPage(),errors=[];page.on('pageerror',e=>errors.push(String(e)));
  await routeApis(page);
+ let scheduleState='booked', releaseSchedule;
+ await page.route('**/api/feedback-schedule?*',async route=>{
+   if(scheduleState==='pending')await new Promise(resolve=>{releaseSchedule=resolve;});
+   if(scheduleState==='unavailable')return fulfill(route,{ok:false,error:'Your schedule is unavailable.'},503);
+   if(scheduleState==='empty'||scheduleState==='unconfigured')return fulfill(route,{ok:true,configured:scheduleState!=='unconfigured',sessions:[]});
+   return route.fallback();
+ });
  const records=[],calls=[],held=[];let hold=false,failNext=false,historyFail=false;
  await page.route('**/api/contacts',route=>fulfill(route,{ok:true,students}));
  await page.route('**/api/check-duplicate-print',route=>fulfill(route,{ok:true,duplicates:[]}));
@@ -45,6 +52,10 @@ async function testViewport(browser,viewport){
  try {
   await page.goto(ORIGIN+'/feedback');
   await page.getByRole('button',{name:'My schedule',exact:true}).waitFor();
+  const title=await page.getByRole('heading',{name:'Parent Feedback',exact:true}).boundingBox();
+  const toggle=await page.getByRole('group',{name:'Student view'}).boundingBox();
+  if(!mobile){assert.ok(Math.abs(title.y+title.height/2-toggle.y-toggle.height/2)<3,'Switch is level with heading');assert.ok(toggle.x>title.x+title.width,'Switch is to the right of heading');}
+  await page.screenshot({path:`qa-artifacts/feedback-heading-${viewport.width}.png`,fullPage:true});
   await page.locator('.feedback-schedule-students button').first().click();
   await page.getByRole('button',{name:'Custom feedback',exact:true}).click();
   // The freeform editor is the only textarea when Custom feedback is selected.
@@ -57,6 +68,29 @@ async function testViewport(browser,viewport){
   await page.reload();await page.waitForFunction(()=>document.querySelector('.feedback-student-switch button[aria-pressed="true"]')?.textContent.includes('All students'));
   await page.getByRole('button',{name:'My schedule',exact:true}).click();
   console.log('PASS',viewport.width,'schedule/all students, full list, draft preserved, remembered mode');
+
+  // Refresh can remove a booking without losing the selected recipient/draft.
+  await page.locator('.feedback-schedule-students button').first().click();
+  await page.getByRole('button',{name:'Custom feedback',exact:true}).click();
+  await page.locator('textarea').first().fill('Preserve this draft if a booking is removed.');
+  scheduleState='empty';await page.getByRole('button',{name:'Refresh schedule',exact:true}).click();
+  await page.getByPlaceholder('Search name or email...').waitFor();
+  assert.equal(await page.locator('.feedback-student-switch').count(),0);
+  assert.equal(await page.locator('textarea').first().inputValue(),'Preserve this draft if a booking is removed.');
+  assert.equal(await page.getByPlaceholder('Search name or email...').inputValue(),'QA Student');
+  for(const state of ['empty','unconfigured','unavailable']){
+    scheduleState=state;await Promise.all([page.waitForResponse(response=>response.url().includes('/api/feedback-schedule?')),page.reload()]);
+    await page.getByPlaceholder('Search name or email...').waitFor();
+    assert.equal(await page.locator('.feedback-student-switch').count(),0);
+    assert.equal(await page.locator('.feedback-student-mode').count(),0);
+    assert.equal(await page.getByText(/Your schedule is unavailable/).count(),0);
+    if(state==='empty')await page.screenshot({path:`qa-artifacts/feedback-no-booking-${viewport.width}.png`,fullPage:true});
+  }
+  scheduleState='pending';await page.reload();
+  await page.getByPlaceholder('Search name or email...').waitFor();await until(()=>!!releaseSchedule);
+  assert.equal(await page.locator('.feedback-student-switch').count(),0,'No switch before booking is confirmed');
+  scheduleState='booked';releaseSchedule();await page.getByRole('button',{name:'My schedule',exact:true}).waitFor();
+  console.log('PASS',viewport.width,'heading placement; no switch for no booking, missing setup, failure or pending request; saved mode restored');
 
   await page.getByRole('link',{name:'Print',exact:true}).click();
   await pick(page,'QA Student');
