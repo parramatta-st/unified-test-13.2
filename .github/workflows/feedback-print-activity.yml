@@ -1,0 +1,41 @@
+name: Feedback and print activity checks
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Print API integration with local fictional services
+        run: node scripts/qa_print_api.cjs
+      - name: Install isolated browser
+        run: |
+          npm install --prefix "$RUNNER_TEMP/print-browser" --no-save --package-lock=false playwright@1.57.0
+          "$RUNNER_TEMP/print-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Desktop and phone Feedback and print flows
+        env:
+          NODE_PATH: ${{ runner.temp }}/print-browser/node_modules
+          QA_USE_BUILD: '1'
+        run: node scripts/qa_print_activity_browser.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: feedback-print-evidence
+          path: qa-artifacts/
+          retention-days: 7

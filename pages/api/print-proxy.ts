@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getAuthStatus } from '../../lib/auth';
+import { savePrintLog } from '../../lib/logs';
 
 function normaliseRequestedPrintMode(body: any) {
   const source = body || {};
@@ -32,21 +33,40 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const token = (process.env.PRINT_API_TOKEN || '').trim();
   if (!base || !token) return res.status(500).json({ ok: false, error: 'Print API not configured' });
   const action = (req.query.action as string) || 'health';
+  if ((action === 'print' || action === 'print-topic') && req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Use POST to print.' });
+  if (action === 'print' && req.body?.portalLog && (!String(req.body?.meta?.student || '').trim() || !Number.isFinite(Number(req.body.material_id)))) return res.status(400).json({ ok: false, error: 'Choose a student and worksheet before printing.' });
   const url = action === 'health' ? `${base}/api/health` : action === 'catalog' ? `${base}/api/catalog` : action === 'print' ? `${base}/api/print` : action === 'print-topic' ? `${base}/api/print-topic` : action === 'stamp-settings' ? `${base}/api/pdf-stamp-settings` : `${base}/healthz`;
   const timeout = parseInt(process.env.PRINT_PROXY_TIMEOUT_MS || '15000', 10);
   const controller = new AbortController();
   const t = setTimeout(()=>controller.abort(), timeout);
   try {
-    const payload = req.method === 'POST' ? normalizePrintPayload(action, req.body || {}) : undefined;
+    const { portalLog, ...printBody } = req.body || {};
+    const payload = req.method === 'POST' ? normalizePrintPayload(action, printBody) : undefined;
+    if (action === 'print' && payload) payload.meta = { ...payload.meta, tutor: auth.tutor };
     const cupsMode = payload && action === 'print' ? normaliseRequestedPrintMode(payload) : 'color';
     const monochrome = cupsMode === 'monochrome';
     const init:any = { method: req.method, headers: { 'X-PRINT-TOKEN': token }, signal: controller.signal };
     if (action === 'print') { init.headers['X-PRINT-COLOR-MODE'] = cupsMode; init.headers['X-PRINT-MONOCHROME'] = monochrome ? '1' : '0'; init.headers['X-PRINT-GRAYSCALE'] = monochrome ? '1' : '0'; }
     if (req.method === 'POST') { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(payload || {}); }
     const r = await fetch(url, init);
-    clearTimeout(t);
     const ct = r.headers.get('content-type') || '';
-    if (ct.includes('application/json')) { const j = await r.json(); return res.status(r.status).json(j); }
+    if (ct.includes('application/json')) {
+      const j = await r.json();
+      clearTimeout(t);
+      if (action === 'print' && portalLog && typeof portalLog === 'object') {
+        try {
+          await savePrintLog({ ...portalLog, when: new Date().toISOString(), kind: 'print',
+            student: String(payload.meta.student).trim(), tutor: auth.tutor, campusKey: auth.campus,
+            qty: payload.qty, material_id: payload.material_id, material_ids: [payload.material_id],
+            sourceForm: portalLog.sourceForm === 'rolling-print-queue' ? 'rolling-print-queue' : 'manual-print',
+            ok: r.ok && j?.ok === true, error: r.ok && j?.ok === true ? '' : j?.error || 'Print service did not confirm acceptance.' });
+        } catch {
+          if (r.ok && j?.ok === true) j.logWarning = 'The print service accepted this file, but its history record is unavailable. Do not resend it to repair history.';
+        }
+      }
+      return res.status(r.status).json(j);
+    }
     const raw = await r.text(); return res.status(r.status).json({ raw });
-  } catch (e:any) { clearTimeout(t); return res.status(502).json({ ok:false, error: e?.message || 'Bad gateway' }); }
+  } catch (e:any) { return res.status(502).json({ ok:false, error: e?.message || 'Bad gateway' }); }
+  finally { clearTimeout(t); }
 }

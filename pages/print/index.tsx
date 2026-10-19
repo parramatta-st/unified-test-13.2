@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Header from '../../components/Header';
 import StudentPicker from '../../components/StudentPicker';
 import RecentStudents from '../../components/RecentStudents';
-import StickyBar from '../../components/StickyBar';
-import BusyOverlay from '../../components/BusyOverlay';
+import StudentPrintHistory from '../../components/StudentPrintHistory';
+import { usePrintActivity } from '../../components/PrintActivityProvider';
+import type { PrintItem } from '../../lib/printActivity';
 import useAuthGuard from '../../hooks/useAuthGuard';
 import type { PronounSet } from '../../lib/tokens';
 import { rememberRecentStudent, type RecentStudent } from '../../lib/recentStudents';
@@ -29,8 +30,6 @@ import {
   TreeNode,
 } from '../../lib/catalog';
 
-type PrintMeta = { student: string; tutor?: string; folder?: string };
-
 function getTutorName() {
   try {
     if (typeof window === 'undefined') return '';
@@ -51,6 +50,8 @@ export default function PrintPage() {
   const [printerName, setPrinterName] = useState('');
   const [qty, setQty] = useState(1);
   const [student, setStudent] = useState('');
+  const [studentId, setStudentId] = useState('');
+  const { enqueue, hasActive } = usePrintActivity();
   const [recentRefreshKey, setRecentRefreshKey] = useState(0);
   // Print flow doesn't currently use pronouns, but StudentPicker can emit them.
   // Keep the setter for future logging/metadata without introducing unused locals.
@@ -68,8 +69,6 @@ export default function PrintPage() {
 
   const [navPath, setNavPath] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const [busyTitle, setBusyTitle] = useState<string>('Working…');
-  const [busySubtitle, setBusySubtitle] = useState<string>('');
   const [needStudent, setNeedStudent] = useState(false);
 
   const topRef = useRef<HTMLDivElement>(null);
@@ -81,6 +80,7 @@ export default function PrintPage() {
 
   function applyRecentStudent(s: RecentStudent) {
     setStudent(s.name);
+    setStudentId(s.id || '');
     setMsg(`Selected ${s.name}`);
   }
 
@@ -120,7 +120,7 @@ export default function PrintPage() {
   }
 
   async function changeStampEnabled(nextEnabled: boolean) {
-    if (!stampCanToggle || stampSaving) return;
+    if (!stampCanToggle || stampSaving || hasActive) return;
     setStampSaving(true);
     setMsg('');
     try {
@@ -226,6 +226,7 @@ export default function PrintPage() {
     // Clear everything the tutor may have entered/selected on the Print page
     // so they can start a new print flow without refreshing.
     setStudent('');
+    setStudentId('');
     setNavPath([]);
     setQty(1);
     setMsg('');
@@ -306,41 +307,13 @@ export default function PrintPage() {
     return resolvePrintRuleKey(visibleFolderSegmentsForFile(file), materialType(file));
   }
 
-  function logPrint(payload: any) {
-    try {
-      void fetch('/api/log-print', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        keepalive: true,
-      });
-    } catch {
-      // ignore logging failures
-    }
-  }
-
-  async function doPrint(material_id: number, meta: PrintMeta, printMode: PrintColorMode) {
-    const colorPayload = buildPrintColorPayload(printMode);
-    const r = await fetch('/api/print-proxy?action=print', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        material_id,
-        qty,
-        meta: { ...meta, printColorMode: printMode, print_color_mode: cupsPrintColorMode(printMode), black_white: printMode === 'bw' },
-        ...colorPayload,
-      }),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!j?.ok) throw new Error(j?.error || 'Print failed');
-  }
-
-  async function confirmDuplicatePrint(payload: any) {
+  async function confirmDuplicatePrint(payload: any, studentName: string) {
     try {
       const res = await fetch('/api/check-duplicate-print', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(20000),
       });
       const json = await res.json().catch(() => ({}));
       const duplicates = Array.isArray(json?.duplicates) ? json.duplicates : [];
@@ -356,252 +329,44 @@ export default function PrintPage() {
         ? contextLabel
         : [materialLabel, contextLabel].filter(Boolean).join('\n');
       return window.confirm(
-        `${heading} for ${student} ${ago} by ${by}.\n\n${detail}\n\nPrint again?`
+        `${heading} for ${studentName} ${ago} by ${by}.\n\n${detail}\n\nPrint again?`
       );
     } catch {
       return true;
     }
   }
 
-  async function printOne(file: any) {
+  async function queueFiles(selectedFiles: any[], folderPrint: boolean) {
     if (printingRef.current) return;
-    if (!student) {
-      setNeedStudent(true);
-      return;
-    }
+    if (!student) { setNeedStudent(true); return; }
+    if (!selectedFiles.length) return;
     printingRef.current = true;
-    setBusy(true);
-    setBusyTitle('Sending to printer…');
-    setBusySubtitle('');
-    setMsg('');
+    setBusy(true); setMsg('');
+    // Snapshot the student, copies and colours before the first await. Tutors can then browse
+    // another folder/student while the queued batch keeps its original details.
+    const folder = currentFolderMeta();
+    const who = student, memberId = studentId, copies = qty;
+    const items: PrintItem[] = selectedFiles.map(file => {
+      const mode = printModeForFile(file);
+      const name = materialName(file), type = materialType(file), path = materialPath(file);
+      return {
+        student: who, studentId: memberId, label: name || file.fileName, materialId: file.id, path,
+        payload: { material_id: file.id, qty: copies, meta: { student: who, tutor: folder.tutor, folder: folder.folder }, ...buildPrintColorPayload(mode) },
+        log: { ...folder, student: who, studentId: memberId, qty: copies, type, name, names: [name], type_labels: [type], materials: [materialSummary(file)],
+          material_id: file.id, material_ids: [file.id], material_path: path, material_paths: path ? [path] : [],
+          printColorMode: mode, print_color_mode: cupsPrintColorMode(mode), colorModeLabel: printModeLabel(mode), print_rule: printRuleForFile(file) },
+      };
+    });
     try {
-      const activeSettings = settingsLoaded ? printSettings : await loadPrintSettings();
-      const meta = { student, tutor: getTutorName(), folder: navPath.join(' / ') };
-      const folderMeta = currentFolderMeta();
-      const typeLabel = materialType(file);
-      const nameLabel = materialName(file);
-      const printMode = printModeForFile(file, activeSettings);
-      const printRule = printRuleForFile(file);
-      const filePath = materialPath(file);
-      const okToPrint = await confirmDuplicatePrint({
-        kind: 'print',
-        student,
-        tutor: folderMeta.tutor,
-        folder: folderMeta.folder,
-        material_id: file.id,
-        material_ids: [file.id],
-        material_path: filePath,
-        material_paths: filePath ? [filePath] : [],
-        name: nameLabel,
-        names: [nameLabel],
-        printColorMode: printMode,
-        print_color_mode: cupsPrintColorMode(printMode),
-        windowMinutes: 20,
-      });
-      if (!okToPrint) { setMsg('Print cancelled.'); return; }
-      await doPrint(file.id, meta, printMode);
-      logPrint({
-        when: new Date().toISOString(),
-        kind: 'print',
-        student,
-        tutor: folderMeta.tutor,
-        year: folderMeta.year,
-        subject: folderMeta.subject,
-        topic: folderMeta.topic,
-        strand: folderMeta.strand,
-        content: folderMeta.content,
-        folder: folderMeta.folder,
-        path: folderMeta.path,
-        qty,
-        printer: folderMeta.printer,
-        ok: true,
-        material_id: file.id,
-        material_ids: [file.id],
-        material_path: filePath,
-        material_paths: filePath ? [filePath] : [],
-        type: typeLabel,
-        name: nameLabel,
-        type_labels: [typeLabel],
-        names: [nameLabel],
-        materials: [materialSummary(file)],
-        types: [materialSummary(file)],
-        printColorMode: printMode,
-        print_color_mode: cupsPrintColorMode(printMode),
-        colorModeLabel: printModeLabel(printMode),
-        black_white: printMode === 'bw',
-        print_rule: printRule,
-        printColorModes: [printMode],
-        print_color_modes: [cupsPrintColorMode(printMode)],
-      });
-      setMsg(`Sent to printer (${printModeLabel(printMode)}).`);
-    } catch (e: any) {
-      const errorMessage = e?.message || 'Print failed';
-      setMsg(errorMessage);
-      // Log the failure too. Without this, the admin "Failed print jobs" panel
-      // never sees failures that happen between the portal and the print server.
-      const folderMeta = currentFolderMeta();
-      logPrint({
-        when: new Date().toISOString(),
-        kind: 'print',
-        student,
-        tutor: folderMeta.tutor,
-        year: folderMeta.year,
-        subject: folderMeta.subject,
-        topic: folderMeta.topic,
-        strand: folderMeta.strand,
-        folder: folderMeta.folder,
-        qty,
-        printer: folderMeta.printer,
-        ok: false,
-        error: errorMessage,
-        material_id: file.id,
-        material_ids: [file.id],
-        name: materialName(file),
-        names: [materialName(file)],
-        types: [materialSummary(file)],
-      });
-    } finally {
-      printingRef.current = false;
-      setBusy(false);
-    }
+      const proceed = await confirmDuplicatePrint({ kind: folderPrint ? 'print-topic' : 'print', student: who, studentId: memberId, folder: folder.folder,
+        material_ids: items.map(item => item.materialId), material_paths: items.map(item => item.path).filter(Boolean), names: items.map(item => item.label), windowMinutes: 20 }, who);
+      if (!proceed) { setMsg('Print cancelled.'); return; }
+      enqueue({ label: `${who} · ${folderPrint ? folder.folder || 'Selected folder' : items[0].label}`, source: 'manual', items });
+    } catch (error: any) { setMsg(error?.message || 'Could not add this print job.'); }
+    finally { printingRef.current = false; setBusy(false); }
   }
-
-  async function printFolderAll() {
-    if (printingRef.current) return;
-    if (!student) {
-      setNeedStudent(true);
-      return;
-    }
-    if (!files.length) return;
-
-    printingRef.current = true;
-    setBusy(true);
-    setBusyTitle('Sending to printer…');
-    setMsg('');
-    // Declared outside the try so a mid-folder failure can still log exactly
-    // which files were printed before the error.
-    const folderMeta = currentFolderMeta();
-    const printedTypes: string[] = [];
-    const printedNames: string[] = [];
-    const printedIds: number[] = [];
-    const printedPaths: string[] = [];
-    const printedModes: PrintColorMode[] = [];
-    const printedRules: string[] = [];
-    let failedAtName = '';
-    try {
-      const activeSettings = settingsLoaded ? printSettings : await loadPrintSettings();
-      const meta: PrintMeta = { student, tutor: getTutorName(), folder: navPath.join(' / ') };
-      const visibleNames = (files as any[]).map((it) => materialName(it));
-      const visibleIds = (files as any[]).map((it) => it.id);
-      const visiblePaths = (files as any[]).map((it) => materialPath(it)).filter(Boolean);
-      const visibleModes = (files as any[]).map((it) => printModeForFile(it, activeSettings));
-      const okToPrint = await confirmDuplicatePrint({
-        kind: 'print-topic',
-        student,
-        tutor: folderMeta.tutor,
-        folder: folderMeta.folder,
-        material_ids: visibleIds,
-        material_paths: visiblePaths,
-        names: visibleNames,
-        printColorModes: visibleModes,
-        print_color_modes: visibleModes.map(cupsPrintColorMode),
-        windowMinutes: 20,
-      });
-      if (!okToPrint) { setMsg('Print cancelled.'); return; }
-
-      // Reliable path: print the exact visible file list, in the same order shown on screen.
-      // The old /api/print-topic shortcut could return success without printing the correct dynamic folder.
-      for (let i = 0; i < files.length; i++) {
-        const it: any = files[i];
-        const mode = printModeForFile(it, activeSettings);
-        failedAtName = materialName(it) || it.fileName || `file ${i + 1}`;
-        setBusySubtitle(`Printing ${i + 1} of ${files.length}: ${it._nameLabel || it.fileName} (${printModeLabel(mode)})`);
-        await doPrint(it.id, meta, mode);
-        printedTypes.push(materialType(it));
-        printedNames.push(materialName(it));
-        printedIds.push(it.id);
-        const printedPath = materialPath(it);
-        if (printedPath) printedPaths.push(printedPath);
-        printedModes.push(mode);
-        printedRules.push(printRuleForFile(it));
-      }
-      failedAtName = '';
-
-      const materialSummaries = printedNames.map((name, i) => {
-        const type = printedTypes[i] || 'File';
-        return name ? `${type}: ${name}` : type;
-      });
-      logPrint({
-        when: new Date().toISOString(),
-        kind: 'print-topic',
-        student,
-        tutor: folderMeta.tutor,
-        year: folderMeta.year,
-        subject: folderMeta.subject,
-        topic: folderMeta.topic,
-        strand: folderMeta.strand,
-        content: folderMeta.content,
-        folder: folderMeta.folder,
-        path: folderMeta.path,
-        qty,
-        printer: folderMeta.printer,
-        ok: true,
-        type_labels: printedTypes,
-        names: printedNames,
-        materials: materialSummaries,
-        types: materialSummaries,
-        material_ids: printedIds,
-        material_paths: printedPaths,
-        printColorModes: printedModes,
-        print_color_modes: printedModes.map(cupsPrintColorMode),
-        colorModeLabels: printedModes.map(printModeLabel),
-        black_white: printedModes.every((mode) => mode === 'bw'),
-        print_rules: printedRules,
-      });
-      setMsg('Folder sent to printer.');
-    } catch (e: any) {
-      const errorMessage = e?.message || 'Print failed';
-      setMsg(
-        failedAtName
-          ? `Print failed at "${failedAtName}" (${printedIds.length} of ${files.length} printed). ${errorMessage}`
-          : errorMessage,
-      );
-      // Log the partial/failed folder print so admins can see it and tutors
-      // can tell exactly which files still need printing.
-      logPrint({
-        when: new Date().toISOString(),
-        kind: 'print-topic',
-        student,
-        tutor: folderMeta.tutor,
-        year: folderMeta.year,
-        subject: folderMeta.subject,
-        topic: folderMeta.topic,
-        strand: folderMeta.strand,
-        folder: folderMeta.folder,
-        qty,
-        printer: folderMeta.printer,
-        ok: false,
-        error: errorMessage,
-        failed_at: failedAtName,
-        printed_count: printedIds.length,
-        total_count: files.length,
-        names: printedNames,
-        material_ids: printedIds,
-        material_paths: printedPaths,
-        types: printedNames.map((name, i) => {
-          const type = printedTypes[i] || 'File';
-          return name ? `${type}: ${name}` : type;
-        }),
-        printColorModes: printedModes,
-        print_color_modes: printedModes.map(cupsPrintColorMode),
-        print_rules: printedRules,
-      });
-    } finally {
-      printingRef.current = false;
-      setBusy(false);
-      setBusySubtitle('');
-    }
-  }
+  const printOne = (file: any) => queueFiles([file], false);
+  const printFolderAll = () => queueFiles(files, true);
 
   const heading = (() => {
     const depth = navPath.length;
@@ -619,7 +384,6 @@ export default function PrintPage() {
       <div ref={topRef} />
       <Header />
 
-      <BusyOverlay open={busy} title={busyTitle} subtitle={busySubtitle} />
 
       {/* Student required dialog */}
       {needStudent && (
@@ -644,86 +408,31 @@ export default function PrintPage() {
         </div>
       )}
 
-      <main className="container">
+      <main className="container manual-print-page">
         <div className="card">
           <div className="flex items-center justify-between">
             <div className="badge-success">{status}</div>
             {msg && <div className="text-sm text-muted" style={{ marginLeft: 12 }}>{msg}</div>}
           </div>
 
-          <div className="grid grid-col mt-4">
-            <div>
-              <div className="label">Quantity</div>
-              <input
-                className="input w-28"
-                type="number"
-                min={1}
-                max={50}
-                value={qty}
-                onChange={(e) => {
-                  // Clamp to 1–50. The max attribute alone doesn't stop typed or
-                  // pasted values, and NaN (cleared field) must fall back to 1.
-                  const n = parseInt(e.target.value, 10);
-                  setQty(Number.isFinite(n) ? Math.min(50, Math.max(1, n)) : 1);
-                }}
-              />
-            </div>
-            <div>
-              <div className="label">Student (required)</div>
-              <StudentPicker
-                value={student}
-                onChange={setStudent}
-                onPronouns={setPronouns}
-                onStudentPick={(s) => {
-                  if (s) {
-                    rememberRecentStudent(s);
-                    setRecentRefreshKey(k => k + 1);
-                  }
-                }}
-                allowCustom
-                customLabel="Use new student"
-                onCustomPick={(name) => {
-                  // Just a small hint so staff know it's not from the official list.
-                  setMsg(`Using new student: ${name}`);
-                  rememberRecentStudent({ name, firstName: name.split(/\s+/)[0] || name });
-                  setRecentRefreshKey(k => k + 1);
-                }}
-                required
-              />
-              <RecentStudents refreshKey={recentRefreshKey} onSelect={applyRecentStudent} />
-              <div className="text-sm text-muted mt-2">New student? Type their name and choose “Use new student”.</div>
-            </div>
+          <div className="mt-3">
+            <label className="label">Student</label>
+            <StudentPicker value={student} onChange={value => { setStudent(value); setStudentId(''); }} onPronouns={setPronouns}
+              onStudentPick={picked => { if (picked) { setStudentId(picked.id || ''); rememberRecentStudent(picked); setRecentRefreshKey(key => key + 1); } }}
+              allowCustom customLabel="Use new student" onCustomPick={name => { setStudentId(''); rememberRecentStudent({ name }); setRecentRefreshKey(key => key + 1); }} required />
+            <RecentStudents refreshKey={recentRefreshKey} onSelect={applyRecentStudent} />
+            {student && <StudentPrintHistory key={`${studentId}|${student}`} student={student} studentId={studentId} />}
           </div>
-
-          <div className={`pdf-stamp-control mt-4 ${stampEnabled ? 'is-on' : 'is-off'} ${!stampCanToggle ? 'is-disabled' : ''}`}>
-            <div className="pdf-stamp-copy">
-              <div className="pdf-stamp-title">Add student name to PDFs</div>
-              <div className="pdf-stamp-description">
-                Adds the selected student&apos;s full name to the top-right of page 1. Diagnostic tests are always left unstamped.
-              </div>
-              <div className={`pdf-stamp-status ${stampCanToggle ? 'is-ready' : ''}`}>
-                {stampStatusMsg}
-              </div>
-            </div>
-            <button
-              type="button"
-              className={`pdf-stamp-switch ${stampEnabled ? 'is-on' : 'is-off'}`}
-              role="switch"
-              aria-checked={stampEnabled}
-              aria-label="Add student name to PDFs"
-              disabled={!stampLoaded || !stampCanToggle || stampSaving}
-              onClick={() => changeStampEnabled(!stampEnabled)}
-            >
-              <span className="pdf-stamp-switch-label">{stampSaving ? 'Saving' : stampEnabled ? 'On' : 'Off'}</span>
-              <span className="pdf-stamp-switch-track" aria-hidden="true">
-                <span className="pdf-stamp-switch-knob" />
-              </span>
-            </button>
-          </div>
-
-          <div className="text-sm text-muted mt-3">
-            Print colour rules: {compactPrintSettingsSummary(printSettings)}
-            {settingsMsg ? ` (${settingsMsg})` : ''}
+          <div className="print-compact-options mt-3">
+            <label>Copies <input className="input" aria-label="Copies" type="number" min={1} max={50} value={qty} onChange={event => {
+              const count = parseInt(event.target.value, 10); setQty(Number.isFinite(count) ? Math.min(50, Math.max(1, count)) : 1);
+            }} /></label>
+            <label className="print-stamp-toggle"><input type="checkbox" checked={stampEnabled} disabled={!stampLoaded || !stampCanToggle || stampSaving || hasActive} onChange={() => changeStampEnabled(!stampEnabled)} /> Add student name</label>
+            <details className="print-settings-details"><summary>Print settings</summary>
+              <p>Student names appear on page 1. Diagnostic tests are left unstamped.</p>
+              <p>{stampStatusMsg}</p>
+              <p>Colour rules: {compactPrintSettingsSummary(printSettings)}{settingsMsg ? ` (${settingsMsg})` : ''}</p>
+            </details>
           </div>
 
 	          {dropdownLevels.length > 0 && (
@@ -753,15 +462,14 @@ export default function PrintPage() {
 	                  <button className="btn w-full" onClick={scrollSelection}>Go to selection</button>
 	                </div>
 	              </div>
-	              <div className="text-sm text-muted mt-2">Tip: Use these dropdowns to jump quickly without scrolling.</div>
+
 	            </div>
 	          )}
 
           {/* Breadcrumb */}
           <div className="mt-4" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <button className="btn" onClick={refresh}>Refresh</button>
-            <button className="btn" onClick={clearAll}>Clear</button>
-            <button className="btn" onClick={scrollTop}>Return to top</button>
+            <button className="btn" onClick={clearAll}>Reset selection</button>
             {navPath.length > 0 && (
               <div className="text-sm text-muted" style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {navPath.map((seg, idx) => (
@@ -847,16 +555,10 @@ export default function PrintPage() {
         )}
 
         <footer className="container footer mt-8" style={{ textAlign: 'center' }}>
-          © {process.env.NEXT_PUBLIC_CAMPUS_NAME || 'Success Tutoring'} · Theme: dark/orange
+          © {process.env.NEXT_PUBLIC_CAMPUS_NAME || 'Success Tutoring'}
         </footer>
       </main>
 
-      {/* Sticky bar: quick controls (esp. on mobile) */}
-      <StickyBar>
-        <button onClick={refresh} className="btn flex-1">Refresh</button>
-        <button onClick={clearAll} className="btn flex-1">Clear</button>
-        <button onClick={scrollTop} className="btn flex-1">Return to top</button>
-      </StickyBar>
     </div>
   );
 }
