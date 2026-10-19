@@ -54,6 +54,7 @@ test('signed collection flows from admin import through private Sheets to tutor 
     const replay = await request(adminHandler, 'Demo Admin', 'admin', { action: 'import_feedback_schedule', capture: capture(), ticket: start.body.ticket }); assert.equal(replay.body.replayed, true); assert.equal(fixture.sheets.get('feedback_roll_events')!.length, rowsBefore);
     const feed = await request(feedbackHandler, 'Demo Tutor', 'tutor', undefined, { date, tutor: 'Second Tutor', campus: 'other' }); assert.equal(feed.body.source, 'daily_rolls'); assert.equal(feed.body.sessions[0].students[0].id, member.id); assert.equal(feed.body.sessions[0].students[0].email, member.parentEmail);
     assert.equal((await request(feedbackHandler, 'Second Tutor', 'tutor')).body.sessions.length, 0);
+    assert.equal(feed.body.sessions[0].students[0].isMakeup, false, 'Ordinary daily imports are not makeup bookings');
     const overview = await request(adminHandler, 'Demo Admin', 'admin'); assert.equal(overview.body.instructors[0].target, 'Demo Tutor');
     assert.ok(!JSON.stringify([...fixture.sheets]).includes('PRIVATE_'));
     assert.equal(fixture.sheets.has('time_clock_events'), false); assert.equal(fixture.sheets.has('hapana_schedule_events'), false);

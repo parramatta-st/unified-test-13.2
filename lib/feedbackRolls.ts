@@ -141,7 +141,7 @@ export function linkedRoster(state: ReturnType<typeof rollState>, campus: string
   }
   const rows = state.sessions.flatMap(session => session.students.map(student => {
     const member = memberFor(student);
-    return { campusKey: campus, tutorName: tutorFor(session.tutorNameRaw), specificDate: state.latest?.date, entryType: 'one_off', startTime: minuteTime(session.startMinute), endTime: minuteTime(session.endMinute), studentId: member?.id || '', studentName: student.name, active: true };
+    return { campusKey: campus, tutorName: tutorFor(session.tutorNameRaw), specificDate: state.latest?.date, entryType: 'one_off', isMakeup: false, startTime: minuteTime(session.startMinute), endTime: minuteTime(session.endMinute), studentId: member?.id || '', studentName: student.name, active: true };
   }));
   return { rows, tutorFor, memberFor };
 }

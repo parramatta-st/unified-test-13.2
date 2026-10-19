@@ -53,7 +53,7 @@ export function feedbackScheduleSessions(rows: any[], members: Member[], campus:
     if (students.some(student => lower(student.id || student.name) === lower(studentId || name))) continue;
     students.push({ id: member?.id || studentId, memberMatched: !!member, name,
       firstName: member?.firstName || '', lastName: member?.lastName || '', email: member?.parentEmail || '', parentName: member?.parentName || '',
-      year: member?.years || '', gender: member?.gender || '', pronouns: '', isMakeup: type === 'one_off',
+      year: member?.years || '', gender: member?.gender || '', pronouns: '', isMakeup: row.isMakeup === undefined ? type === 'one_off' : ['true', '1', 'yes'].includes(lower(row.isMakeup)),
     });
   }
   return [...groups.values()].map(group => ({ ...group, students: group.students.sort((a, b) => a.name.localeCompare(b.name)) }))
