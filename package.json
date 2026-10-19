@@ -11,7 +11,7 @@
     "start": "next start",
     "lint": "echo 'No ESLint configuration; lint is intentionally skipped'",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts && node scripts/test_print_activity.cjs"
   },
   "dependencies": {
     "cookie": "0.7.2",

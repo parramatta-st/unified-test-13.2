@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Header from '../components/Header';
+import FeedbackStudentMode from '../components/FeedbackStudentMode';
 import StudentPicker, { type StudentPickerValue } from '../components/StudentPicker';
 import StickyBar from '../components/StickyBar';
 import RecentStudents from '../components/RecentStudents';
@@ -479,8 +480,36 @@ function handleCustomChange(v: string) {
         <div className="card">
           <h2 className="section-title">Parent Feedback</h2>
           <p className="text-muted">
-            Pick a student and lesson, choose a template, then customise the message if needed.
+            Choose a student from My schedule or All students, then prepare their feedback.
           </p>
+
+          <FeedbackStudentMode selected={student} onSelect={picked => { applyRecentStudent(picked); rememberRecentStudent(picked); setRecentRefreshKey(key => key + 1); }}>
+            <div className="mt-4">
+              <label className="label">Student</label>
+              <StudentPicker
+                value={student}
+                onChange={(v) => {
+                  setStudent(v);
+                  if (selectedStudent && v !== selectedStudent.name) {
+                    setSelectedStudent(null);
+                    setParentName('');
+                  }
+                }}
+                onPronouns={setPronouns}
+                onParentName={setParentName}
+                onStudentPick={(s) => {
+                  setSelectedStudent(s);
+                  setParentName(s?.parentName || '');
+                  if (s) {
+                    rememberRecentStudent(s);
+                    setRecentRefreshKey(k => k + 1);
+                  }
+                }}
+                required
+              />
+              <RecentStudents refreshKey={recentRefreshKey} onSelect={applyRecentStudent} />
+            </div>
+          </FeedbackStudentMode>
 
           <div className="segmented mt-4">
             <button
@@ -505,32 +534,6 @@ function handleCustomChange(v: string) {
               below.
             </div>
           )}
-
-          <div className="mt-4">
-            <label className="label">Student</label>
-            <StudentPicker
-              value={student}
-              onChange={(v) => {
-                setStudent(v);
-                if (selectedStudent && v !== selectedStudent.name) {
-                  setSelectedStudent(null);
-                  setParentName('');
-                }
-              }}
-              onPronouns={setPronouns}
-              onParentName={setParentName}
-              onStudentPick={(s) => {
-                setSelectedStudent(s);
-                setParentName(s?.parentName || '');
-                if (s) {
-                  rememberRecentStudent(s);
-                  setRecentRefreshKey(k => k + 1);
-                }
-              }}
-              required
-            />
-            <RecentStudents refreshKey={recentRefreshKey} onSelect={applyRecentStudent} />
-          </div>
 
           {!isCustom && (
             <div className="grid grid-2 grid-col mt-4">

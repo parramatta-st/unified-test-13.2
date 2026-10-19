@@ -94,6 +94,7 @@ function adminCookie() {
     for (let i = 0; i < 100; i++) { try { if ((await fetch(base + '/api/healthz')).ok) { ready = true; break; } } catch {} await new Promise(r => setTimeout(r, 200)); }
     assert.ok(ready, 'Next test server did not start');
     for (const [name, engine] of Object.entries({ chromium, firefox, webkit })) {
+      if (process.env.DOOR_BROWSER_ENGINES && !process.env.DOOR_BROWSER_ENGINES.split(',').includes(name)) continue;
       browserName = name; const browser = await engine.launch({ headless: true });
       await check('first selection, single POST, no GPS/session, confirmation then real login redirect', async () => {
         const s = await scenario(browser); await s.open(); await expect(s.page.getByRole('heading', { name: "Who's here?" })).toBeVisible(); assert.equal(s.state.posts.length, 0);

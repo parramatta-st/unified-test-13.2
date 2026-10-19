@@ -1,5 +1,6 @@
 import type { AppProps } from 'next/app';
 import Head from 'next/head';
+import PrintActivityProvider from '../components/PrintActivityProvider';
 import { useRouter } from 'next/router';
 import { useEffect } from 'react';
 import '../styles/globals.css';
@@ -36,7 +37,7 @@ export default function App({ Component, pageProps }: AppProps) {
         <link rel="icon" href="/favicon.svg" />
         <title>Success Tutoring Portal</title>
       </Head>
-      <Component {...pageProps} />
+      <PrintActivityProvider><Component {...pageProps} /></PrintActivityProvider>
     </>
   );
 }

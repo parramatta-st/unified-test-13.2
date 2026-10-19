@@ -188,3 +188,12 @@ export async function appendPrintLog(payload: any) {
   await appendSheetRows(sheetNames.printLog(), PRINT_LOG_HEADERS, [buildPrintLogRow(payload)], spreadsheetIdFor('PRINT_LOG'));
   return { saved: true };
 }
+
+export async function savePrintLog(payload: any) {
+  const result = await appendPrintLog(payload).catch(() => ({ saved: false }));
+  if (result.saved) return;
+  const webhook = process.env.PRINT_LOG_WEBHOOK_URL;
+  if (!webhook) throw new Error('Print history storage is not configured or is unavailable.');
+  const response = await fetch(webhook, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(10000) });
+  if (!response.ok) throw new Error('Print history could not be saved.');
+}

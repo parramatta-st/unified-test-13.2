@@ -7,7 +7,7 @@ import { fixtureSheets } from './helpers/timeClockSheets';
 
 test('portal data and write APIs reject signed-out requests before accessing external services', async (t) => {
   t.mock.method(globalThis, 'fetch', async () => { throw new Error('Unauthenticated request reached an upstream service'); });
-  const routes = ['contacts', 'curriculum', 'student-progress', 'student-print-history', 'check-duplicate-print',
+  const routes = ['contacts', 'feedback-schedule', 'curriculum', 'student-progress', 'student-print-history', 'check-duplicate-print',
     'check-duplicate-feedback', 'admin-dashboard', 'admin-sheets-status', 'admin-members', 'admin-tutors',
     'inbox-unread', 'inbox-read', 'inbox-reply', 'sent-feedback', 'log-print', 'send-feedback', 'print-proxy', 'print-settings'];
   for (const route of routes) {
