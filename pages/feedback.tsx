@@ -478,11 +478,6 @@ function handleCustomChange(v: string) {
       <Header />
       <main className="container">
         <div className="card">
-          <h2 className="section-title">Parent Feedback</h2>
-          <p className="text-muted">
-            Choose a student from My schedule or All students, then prepare their feedback.
-          </p>
-
           <FeedbackStudentMode selected={student} onSelect={picked => { applyRecentStudent(picked); rememberRecentStudent(picked); setRecentRefreshKey(key => key + 1); }}>
             <div className="mt-4">
               <label className="label">Student</label>

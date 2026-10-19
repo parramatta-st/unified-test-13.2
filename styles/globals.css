@@ -1822,7 +1822,10 @@ main.container {
 @media(prefers-reduced-motion:reduce){.print-activity *{animation:none!important;transition:none!important}}
 
 .feedback-student-mode{margin-top:1rem;padding:1rem;border:1px solid #3f3f46;border-radius:14px;background:#121215}
-.feedback-student-switch{margin:0 0 .75rem}.feedback-student-switch .seg-btn{color:#e5e7eb}.feedback-student-switch .seg-btn.active{color:#111827}
+.feedback-heading{display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap}
+.feedback-heading .section-title{margin:0!important}
+.feedback-heading .feedback-student-switch{margin:0 0 0 auto;flex-shrink:0}
+.feedback-student-switch .seg-btn{color:#e5e7eb;white-space:nowrap}.feedback-student-switch .seg-btn.active{color:#111827}
 .feedback-schedule-toolbar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:.5rem;margin:.8rem 0}.feedback-schedule-toolbar label{display:grid;gap:.3rem;font-size:.85rem}
 .feedback-schedule-session{padding:.7rem 0;border-top:1px solid #3f3f46}.feedback-schedule-students{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.5rem}.feedback-schedule-students .btn{white-space:normal;text-align:left}
 .feedback-schedule-students .selected{border-color:#fb923c}.feedback-schedule-selected{font-size:.85rem;color:var(--muted);margin:.6rem 0}
