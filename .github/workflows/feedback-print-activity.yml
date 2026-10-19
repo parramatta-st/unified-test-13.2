@@ -20,6 +20,13 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm test
+      - name: Daily Rolls extension model, UI and bridge regressions
+        run: |
+          node extensions/daily-rolls/tests/run.cjs
+          node extensions/daily-rolls/tests/schedule-unit.cjs
+          node extensions/daily-rolls/tests/schedule-flow.cjs
+          node extensions/daily-rolls/tests/portal-bridge.cjs
+          node extensions/daily-rolls/tests/feedback-sync.cjs
       - run: npm run typecheck
       - run: npm run build
       - name: Print API integration with local fictional services
@@ -33,6 +40,15 @@ jobs:
           NODE_PATH: ${{ runner.temp }}/print-browser/node_modules
           QA_USE_BUILD: '1'
         run: node scripts/qa_print_activity_browser.cjs
+      - name: Installed Daily Rolls to real portal API and tutor Feedback
+        env:
+          NODE_PATH: ${{ runner.temp }}/print-browser/node_modules
+        run: node scripts/qa_feedback_rolls_browser.cjs
+      - name: Daily Rolls collection, printing and substitution browser regressions
+        env:
+          NODE_PATH: ${{ runner.temp }}/print-browser/node_modules
+          STP_TEST_ARTIFACTS: qa-artifacts/daily-rolls-regressions
+        run: node extensions/daily-rolls/tests/browser-schedule.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

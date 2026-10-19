@@ -1,0 +1,29 @@
+# Daily Rolls 0.6.0 — student bookings for Feedback
+
+This release connects verified Hapana student bookings to `parramatta-st/unified-test-13.2`. Install the matching portal change before collecting. Open START-HERE.html for the numbered setup guide.
+
+## Update and use
+
+1. Unzip the download. Copy **all files inside hapana-rolls** into the permanent folder used by the existing Chrome extension. Replace matching files and include the new scripts. Keep the existing extension installation so tutor-only backups survive.
+2. Open `chrome://extensions`, click Reload on Daily Rolls and confirm version **0.6.0**. Close old review tabs and refresh both Hapana and the portal.
+3. Sign in **as an admin** at https://unified-test-13-2.vercel.app/admin/feedback-schedule in the same Chrome profile.
+4. In Hapana, select Schedule → Day and the required date. Clear filters. To replace the entire included day, tick **All classes for this day are visible** before collecting; otherwise unseen classes are retained.
+5. Collect the day and wait for **Student bookings synced to Feedback** in the new Student bookings panel. Local tutor backup success is a separate confirmation.
+6. Open **Link tutors and students**. Choose the saved date. Link full instructor names to portal accounts, for example **Sai Arulanathan → Sai**. Exact, unique full names link automatically; first-name guesses are never used. Link any unmatched student to the correct portal Member and check duplicate names using parent name, year and Member ID.
+7. Refresh the tutor's Feedback page. A linked tutor with a booking today in Sydney sees My schedule / All students beside Parent Feedback. Other tutors retain the normal student search. The selected student and draft survive switching views.
+
+No terminal, API keys or manual spreadsheet creation are needed when the portal's existing private Google Sheets connection is working. The portal creates its own `feedback_roll_events` tab on the first successful real import. If private Sheets is not configured, the extension reports that clearly and local rolls remain usable.
+
+## What is sent
+
+Student sync sends verified Hapana student IDs and names, instructor labels, class IDs/titles and times. It excludes phone numbers, payments, room choices and parent contact details. The portal uses its own linked Members for parent email, name, school year and gender. Student bookings are stored privately on the portal; the extension keeps them only in the current review tab's memory. Existing local tutor-only revision backups/exports still have no student data. Closing the review tab requires collecting again to retry student sync.
+
+An admin-only signed cookie authorizes every upload and identity link. A two-hour signed collection ticket is requested before reading classes. Tickets are tied to the admin, campus, date and capture ID. They and portal credentials are not saved in exports. Duplicate retries do not add another capture, older collections cannot replace newer substitutions, and incomplete/altered captures are ignored. Do not remove/reinstall the extension just to update it.
+
+## Retained behaviour and limits
+
+Collection remains read-only in Hapana. Room/tutor previews, print fitting, phones/payment columns and tutor-only local history remain available. Student sync does not alter shifts, payroll, bookings or attendance. The older tutor-only Time Clock upload retains its separate endpoint and release dependency (PR #13); this Feedback feature does not require merging that payroll change. A tutor-only sync failure does not prevent the new student sync or printing.
+
+Snapshots need recollection after additions, cancellations or substitutions. Assessments/diagnostics and one-to-one sessions are still excluded. An empty/filtered day cannot erase a previous saved day, because the collector cannot verify that no classes exist. Collect a non-empty verified day to sync; administrative empty-day clearing is not provided here. Collection tickets expire after two hours; sign in and recollect when requested. Full-day replacement applies only when the whole visible group-class day was confirmed before collection.
+
+See the portal's `docs/daily-rolls-feedback-sync.md` for storage and verification details. All included tests use fictional data. A first on-site collection still needs checking against Hapana and the correct parent recipient before sending feedback.
