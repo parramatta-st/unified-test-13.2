@@ -8,10 +8,10 @@ const profile=fs.mkdtempSync(path.join(os.tmpdir(),'feedback-rolls-browser-')),e
 const artifacts=path.resolve('qa-artifacts/feedback-rolls');fs.mkdirSync(artifacts,{recursive:true});
 const contacts=[{id:'m1',firstName:'Student',lastName:'Example 1',parentName:'First Parent',parentEmail:'first@example.invalid',years:'Year 4',active:true},{id:'m2',firstName:'Canonical',lastName:'Student',parentName:'Second Parent',parentEmail:'second@example.invalid',years:'Year 5',active:true}];
 const sheets=new Map([['contacts',[Object.keys(contacts[0]),...contacts.map(Object.values)]]]);
-let failWrites=false,tutor='Sai Arulanathan',context,app,logs='';
+let failWrites=false,tutor='Sai Arulanathan',context,app,portal,review,logs='';
 const imports=[];
 const fake=http.createServer(async(req,res)=>{
- let text='';for await(const chunk of req)text+=chunk;const body=text?JSON.parse(text):{},url=new URL(req.url,'http://fixture.invalid'),pathname=decodeURIComponent(url.pathname);
+ let text='';for await(const chunk of req)text+=chunk;const body=text&&String(req.headers['content-type']).includes('application/json')?JSON.parse(text):{},url=new URL(req.url,'http://fixture.invalid'),pathname=decodeURIComponent(url.pathname);
  res.setHeader('Content-Type','application/json');const reply=value=>res.end(JSON.stringify(value));
  if(pathname==='/token')return reply({access_token:'fixture-only',expires_in:3600});
  if(!pathname.includes('fixture-only-spreadsheet')){res.statusCode=400;return reply({error:'Unexpected fixture spreadsheet'});}
@@ -31,9 +31,10 @@ async function identity(name,role){await context.addCookies([{name:'st_sess',val
 async function ready(){for(let i=0;i<80;i++){try{if((await fetch(LOCAL+'/api/healthz')).ok)return;}catch{}await new Promise(r=>setTimeout(r,250));}throw Error('Fictional portal did not start');}
 async function localRequest(request){
  const url=new URL(request.url());
+ const originalHeaders=await request.allHeaders();
  return new Promise((resolve,reject)=>{
    const headers={host:'unified-test-13-2.vercel.app'};
-   for(const key of ['cookie','content-type','origin','sec-fetch-site']){const value=request.headers()[key];if(value)headers[key]=value;}
+   for(const key of ['cookie','content-type','origin','sec-fetch-site']){const value=originalHeaders[key];if(value)headers[key]=value;}
    const req=http.request(LOCAL+url.pathname+url.search,{method:request.method(),headers},res=>{const chunks=[];res.on('data',chunk=>chunks.push(chunk));res.on('end',()=>{const headers={...res.headers};delete headers['transfer-encoding'];delete headers.connection;resolve({status:res.statusCode,headers,body:Buffer.concat(chunks)});});});
    req.on('error',reject);req.end(request.postDataBuffer()||undefined);
  });
@@ -65,13 +66,13 @@ const html=e=>`<${e.tagName.toLowerCase()} ${Object.entries(e.attrs).map(([k,v])
  const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker'),extensionId=worker.url().split('/')[2];
  // Attach interception before tabs created by the real extension navigate.
  await worker.evaluate(()=>{const create=chrome.tabs.create.bind(chrome.tabs);chrome.tabs.create=async options=>{if(options.url?.startsWith('https://')){const tab=await create({...options,url:'about:blank'});await new Promise(r=>setTimeout(r,300));return chrome.tabs.update(tab.id,{url:options.url});}return create(options);};});
- const portal=await context.newPage(),errors=[];portal.on('pageerror',error=>errors.push(error.message));
+ portal=await context.newPage();const errors=[];portal.on('pageerror',error=>errors.push(error.message));
  await portal.clock.install({time:new Date(DATE+'T03:00:00Z')});
  await portal.goto(PORTAL+'/admin/feedback-schedule');await portal.getByLabel('Saved date',{exact:true}).fill(DATE);
  await portal.getByText(/No student bookings have synced/).waitFor();
  const source=await context.newPage();await source.goto('https://core.hapana.com/index.php?route=dashboard/schedule&view=day');
  const sourceId=await worker.evaluate(async()=>{const tabs=await chrome.tabs.query({url:'https://core.hapana.com/*'});return tabs.find(tab=>tab.url.includes('view=day')).id;});
- const review=await context.newPage();review.on('pageerror',error=>errors.push(error.message));review.on('dialog',dialog=>dialog.accept());await review.goto(`chrome-extension://${extensionId}/review.html?source=${sourceId}`);
+ review=await context.newPage();review.on('pageerror',error=>errors.push(error.message));review.on('dialog',dialog=>dialog.accept());await review.goto(`chrome-extension://${extensionId}/review.html?source=${sourceId}`);
  const synced=()=>review.waitForFunction(()=>document.getElementById('feedback-sync-status').textContent.startsWith('Student bookings synced to Feedback')&&!document.getElementById('refresh').disabled,{},{timeout:60000});
  await synced();
  assert.equal(imports.length,1);assert.ok(!JSON.stringify(imports).includes('04XX'));assert.ok(!JSON.stringify(imports).includes('Pending'));assert.equal(imports[0].sessions[0].students[0].id,'sample0');
@@ -99,6 +100,6 @@ const html=e=>`<${e.tagName.toLowerCase()} ${Object.entries(e.attrs).map(([k,v])
  await review.screenshot({path:path.join(artifacts,'extension-sync-confirmed.png'),fullPage:true});
  const local=await worker.evaluate(async()=>chrome.storage.local.get(null));assert.ok(!JSON.stringify(local).includes('Student Example'));
  assert.deepEqual(errors,[]);console.log('PASS: failed sync keeps printing available, same-collection retry is idempotent and local tutor backups have no student data');
-})().catch(error=>{console.error(error);process.exitCode=1;}).finally(async()=>{
+})().catch(async error=>{console.error(error);for(const [name,page] of [['portal',portal],['extension',review]])if(page){await page.screenshot({path:path.join(artifacts,'failure-'+name+'.png'),fullPage:true}).catch(()=>{});console.log(name+' visible state:',(await page.locator('body').innerText().catch(()=>'' )).slice(0,4000));}process.exitCode=1;}).finally(async()=>{
  if(context)await context.close();if(app&&app.exitCode===null){app.kill('SIGTERM');await new Promise(resolve=>app.once('exit',resolve));}await new Promise(resolve=>fake.close(resolve));fs.rmSync(profile,{recursive:true,force:true});if(logs)console.log(logs.slice(-1500));
 });

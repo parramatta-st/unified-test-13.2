@@ -17,7 +17,7 @@ export default function FeedbackScheduleSetup() {
       const response = await fetch(`/api/admin/feedback-rolls?date=${encodeURIComponent(date)}`, { cache: 'no-store', signal });
       const json = await response.json();
       if (!response.ok || !json.ok) throw new Error(json.error || 'Could not load Daily Rolls.');
-      setData(json);
+      if (!signal?.aborted) setData(json);
     } catch (error) { if (!signal?.aborted) { setData(null); setError(error instanceof Error ? error.message : 'Could not load Daily Rolls.'); } }
     finally { if (!signal?.aborted) setBusy(false); }
   }

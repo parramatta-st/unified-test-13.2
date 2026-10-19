@@ -13,7 +13,7 @@
   let portalTicket='',portalStartError='';
   let feedbackTicket='',feedbackStartError='';
   const feedbackModel=createFeedbackModel();
-  const feedbackUI=createFeedbackSyncUI({installed,demo,background,getTicket:()=>{
+  const feedbackUI=createFeedbackSyncUI({installed,demo,background,onBusyChange:busy=>{$('refresh').disabled=busy||collecting||savingSchedule;},getTicket:()=>{
     if(!feedbackTicket)throw new Error(feedbackStartError||'Sign in to the portal as an admin and collect again.');
     return feedbackTicket;
   },getCapture:()=>{
@@ -110,7 +110,7 @@
     }
   }
   async function start() {
-    if(collecting||savingSchedule)return;
+    if(collecting||savingSchedule||feedbackUI.isBusy())return;
     if(demo){loadDemo();return;}
     if(!installed||!sourceId) { $('welcome').hidden=false; status('Open this from Hapana','Use the new button on Hapana’s selected Day view. You can also explore the sample screen below.'); return; }
     if(sessions.length&&!confirm('Collect fresh bookings from the selected Hapana day? Your current room choices will be reset.'))return;
