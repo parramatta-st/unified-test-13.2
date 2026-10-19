@@ -3,7 +3,7 @@
 const assert=require('node:assert/strict'),http=require('node:http'),crypto=require('node:crypto'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 const {spawn}=require('node:child_process'),{chromium}=require('playwright');
 const {fixture,El}=require('../extensions/daily-rolls/tests/dom-fixture.cjs');
-const PORTAL='https://unified-test-13-2.vercel.app',LOCAL='http://127.0.0.1:3115',SECRET='fictional-feedback-rolls-only',DATE='2026-09-12';
+const PORTAL='https://unified-site.successtutoringparramatta.com',LOCAL='http://127.0.0.1:3115',SECRET='fictional-feedback-rolls-only',DATE='2026-09-12';
 const profile=fs.mkdtempSync(path.join(os.tmpdir(),'feedback-rolls-browser-')),extension=path.resolve('extensions/daily-rolls');
 const artifacts=path.resolve('qa-artifacts/feedback-rolls');fs.mkdirSync(artifacts,{recursive:true});
 const contacts=[{id:'m1',firstName:'Student',lastName:'Example 1',parentName:'First Parent',parentEmail:'first@example.invalid',years:'Year 4',active:true},{id:'m2',firstName:'Canonical',lastName:'Student',parentName:'Second Parent',parentEmail:'second@example.invalid',years:'Year 5',active:true}];
@@ -33,7 +33,7 @@ async function localRequest(request){
  const url=new URL(request.url());
  const originalHeaders=await request.allHeaders();
  return new Promise((resolve,reject)=>{
-   const headers={host:'unified-test-13-2.vercel.app'};
+   const headers={host:new URL(PORTAL).host};
    for(const key of ['cookie','content-type','origin','sec-fetch-site']){const value=originalHeaders[key];if(value)headers[key]=value;}
    const req=http.request(LOCAL+url.pathname+url.search,{method:request.method(),headers},res=>{const chunks=[];res.on('data',chunk=>chunks.push(chunk));res.on('end',()=>{const headers={...res.headers};delete headers['transfer-encoding'];delete headers.connection;resolve({status:res.statusCode,headers,body:Buffer.concat(chunks)});});});
    req.on('error',reject);req.end(request.postDataBuffer()||undefined);
@@ -62,6 +62,7 @@ const html=e=>`<${e.tagName.toLowerCase()} ${Object.entries(e.attrs).map(([k,v])
  });
  await context.route('https://core.hapana.com/**',route=>{
    const url=new URL(route.request().url()),eid=url.searchParams.get('eid')||'100',f=fixture({eid,tutor:eid==='100'?tutor:'Other Tutor'});
+   if(eid==='100'){const rename=node=>{if(node.text==='Student Example 2')node.text='Parent Booking';node.children.forEach(rename);};rename(f.doc);}
    f.doc.querySelector('#getdaymyEvents').children=['100','200'].map(id=>new El('li','',{},[new El('a','10:00 AM K-6 English Study Hub(2)',{href:fixture({eid:id}).href})]));
    return route.fulfill({contentType:'text/html',body:'<!doctype html><html><head><title>Fictional Hapana</title></head>'+html(f.doc)+'</html>'});
  });
@@ -80,12 +81,13 @@ const html=e=>`<${e.tagName.toLowerCase()} ${Object.entries(e.attrs).map(([k,v])
  review=await context.newPage();review.on('pageerror',error=>errors.push(error.message));review.on('dialog',dialog=>dialog.accept());await review.goto(`chrome-extension://${extensionId}/review.html?source=${sourceId}`);
  const synced=()=>review.waitForFunction(()=>document.getElementById('feedback-sync-status').textContent.startsWith('Student bookings synced to Feedback')&&!document.getElementById('refresh').disabled,{},{timeout:60000});
  await synced();
+ assert.equal(await review.getByRole('link',{name:'Link tutors and students ↗'}).getAttribute('href'),PORTAL+'/admin/feedback-schedule');
  assert.equal(imports.length,1);assert.ok(!JSON.stringify(imports).includes('04XX'));assert.ok(!JSON.stringify(imports).includes('Pending'));assert.equal(imports[0].sessions[0].students[0].id,'sample0');
  await portal.bringToFront();await portal.getByRole('button',{name:'Refresh saved day'}).click();
  await portal.getByLabel('Portal account for Sai Arulanathan',{exact:true}).waitFor();
  await portal.getByLabel('Portal account for Sai Arulanathan',{exact:true}).selectOption('Sai');await portal.getByText('Link saved. Refresh the tutor’s Feedback page to use it.').waitFor();
- await portal.getByLabel('Portal member for Student Example 2 (sample1)',{exact:true}).selectOption('m2');
- await portal.waitForFunction(()=>document.querySelector('select[aria-label="Portal member for Student Example 2 (sample1)"]')?.value==='m2'&&!document.querySelector('select').disabled);
+ await portal.getByLabel('Portal member for Parent Booking (sample1) · 2026-09-12:100:100',{exact:true}).selectOption('m2');
+ await portal.waitForFunction(()=>document.querySelector('select[aria-label="Portal member for Parent Booking (sample1) · 2026-09-12:100:100"]')?.value==='m2'&&!document.querySelector('select').disabled);
  await portal.screenshot({path:path.join(artifacts,'admin-links-desktop.png'),fullPage:true});
  await portal.setViewportSize({width:390,height:844});await portal.screenshot({path:path.join(artifacts,'admin-links-phone.png'),fullPage:true});assert.ok(await portal.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  await identity('Sai','tutor');await portal.goto(PORTAL+'/feedback');await portal.getByRole('button',{name:'My schedule',exact:true}).waitFor();

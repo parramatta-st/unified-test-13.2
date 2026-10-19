@@ -9,8 +9,8 @@ let tutor='Kevin',visible=['100','200'],signInWall=false,context,passed=0,portal
 async function test(name,fn){await fn();passed++;console.log('PASS',name);}
 (async()=>{
  context=await chromium.launchPersistentContext(profile,{headless:true,executablePath:chromium.executablePath(),args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`,'--no-sandbox'],viewport:{width:1440,height:1000},acceptDownloads:true});
- await context.addCookies([{name:'st_sess',value:'fixture-portal-session',url:'https://unified-test-13-2.vercel.app',httpOnly:true,secure:true,sameSite:'Lax'}]);
- await context.route('https://unified-test-13-2.vercel.app/**',route=>{
+ await context.addCookies([{name:'st_sess',value:'fixture-portal-session',url:'https://unified-site.successtutoringparramatta.com',httpOnly:true,secure:true,sameSite:'Lax'}]);
+ await context.route('https://unified-site.successtutoringparramatta.com/**',route=>{
   const url=new URL(route.request().url());
   if(url.pathname==='/api/admin/hapana-schedule'){
     assert.ok((route.request().headers().cookie||'').includes('st_sess=fixture-portal-session'),'The same-origin bridge must carry the HttpOnly portal session');

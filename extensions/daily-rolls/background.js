@@ -5,10 +5,10 @@ const scheduleModel = createScheduleModel();
 const SCHEDULE_PREFIX = 'stp-schedule-v1:parramatta:';
 // All read/modify/write operations run in the sole service worker, in order.
 let scheduleQueue = Promise.resolve();
-const PORTAL_ORIGIN = 'https://unified-test-13-2.vercel.app';
+const PORTAL_ORIGIN = 'https://unified-site.successtutoringparramatta.com';
 async function portalRequest(body) {
   const tabs=await chrome.tabs.query({url:PORTAL_ORIGIN+'/*'});
-  const tab=tabs[0]||await chrome.tabs.create({url:PORTAL_ORIGIN+'/admin/time-clock',active:false});
+  const tab=tabs[0]||await chrome.tabs.create({url:PORTAL_ORIGIN+'/admin/feedback-schedule',active:false});
   let last='Open the portal and sign in as an admin.';
   for(let attempt=0;attempt<20;attempt++) {
     try {

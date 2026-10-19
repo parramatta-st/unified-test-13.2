@@ -6,7 +6,7 @@ This update adds automatic tutor-only schedule sync through the signed-in Parram
 
 1. Copy all files from this `hapana-rolls` folder into the permanent extension folder already loaded in Chrome.
 2. Reload the existing extension at `chrome://extensions`, confirm **0.5.0**, and refresh both Hapana and the portal. Chrome may ask you to approve access to the named portal host.
-3. Sign in as an admin at `https://unified-test-13-2.vercel.app` in the same Chrome profile. No API keys or Google credentials are entered into the extension.
+3. Sign in as an admin at `https://unified-site.successtutoringparramatta.com` in the same Chrome profile. No API keys or Google credentials are entered into the extension.
 4. Open Hapana Day view, select the date, clear schedule filters and launch Daily Rolls. The first automatic collection updates visible classes.
 5. If all classes are visible, tick **All classes for this day are visible** before pressing **Collect selected day**. That verified collection replaces the included day, removing classes no longer present. Otherwise unseen previously stored classes are retained.
 6. Check the explicit **Saved locally and synced to the portal** message. Regenerate after substitutions, cancellations or tutor changes.

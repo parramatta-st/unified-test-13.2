@@ -1,15 +1,15 @@
-# Daily Rolls 0.6.0 — student bookings for Feedback
+# Daily Rolls 0.6.1 — student bookings for Feedback
 
 This release connects verified Hapana student bookings to `parramatta-st/unified-test-13.2`. Install the matching portal change before collecting. Open START-HERE.html for the numbered setup guide.
 
 ## Update and use
 
 1. Unzip the download. Copy **all files inside hapana-rolls** into the permanent folder used by the existing Chrome extension. Replace matching files and include the new scripts. Keep the existing extension installation so tutor-only backups survive.
-2. Open `chrome://extensions`, click Reload on Daily Rolls and confirm version **0.6.0**. Close old review tabs and refresh both Hapana and the portal.
-3. Sign in **as an admin** at https://unified-test-13-2.vercel.app/admin/feedback-schedule in the same Chrome profile.
+2. Open `chrome://extensions`, click Reload on Daily Rolls and confirm version **0.6.1**. Close old review tabs and refresh both Hapana and the portal.
+3. Sign in **as an admin** at https://unified-site.successtutoringparramatta.com/admin/feedback-schedule in the same Chrome profile.
 4. In Hapana, select Schedule → Day and the required date. Clear filters. To replace the entire included day, tick **All classes for this day are visible** before collecting; otherwise unseen classes are retained.
 5. Collect the day and wait for **Student bookings synced to Feedback** in the new Student bookings panel. Local tutor backup success is a separate confirmation.
-6. Open **Link tutors and students**. Choose the saved date. Link full instructor names to portal accounts, for example **Sai Arulanathan → Sai**. Exact, unique full names link automatically; first-name guesses are never used. Link any unmatched student to the correct portal Member and check duplicate names using parent name, year and Member ID.
+6. Open **Link tutors and students**. Choose the saved date. Link full instructor names to portal accounts, for example **Sai Arulanathan → Sai**. Exact, unique full names link automatically; first-name guesses are never used. If the Hapana booking shows a parent, select the actual child for that class. Student links apply to that dated class only, allowing siblings under the same parent record to be linked separately. Use parent name, year and Member ID to check the child.
 7. Refresh the tutor's Feedback page. A linked tutor with a booking today in Sydney sees My schedule / All students beside Parent Feedback. Other tutors retain the normal student search. The selected student and draft survive switching views.
 
 No terminal, API keys or manual spreadsheet creation are needed when the portal's existing private Google Sheets connection is working. The portal creates its own `feedback_roll_events` tab on the first successful real import. If private Sheets is not configured, the extension reports that clearly and local rolls remain usable.

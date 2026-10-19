@@ -70,10 +70,42 @@ test('Sai/full-name aliases require explicit admin linking; student IDs can be l
     const overview = await request(adminHandler, 'Demo Admin', 'admin'); assert.equal(overview.body.instructors[0].target, ''); assert.equal(overview.body.students[0].target, '');
     assert.equal((await request(adminHandler, 'Demo Admin', 'admin', { action: 'link_identity', date, kind: 'tutor', source: 'Sai Arulanathan', target: 'Sai' })).code, 200);
     let feed = await request(feedbackHandler, 'Sai', 'tutor'); assert.equal(feed.body.sessions[0].students[0].memberMatched, false);
-    assert.equal((await request(adminHandler, 'Demo Admin', 'admin', { action: 'link_identity', date, kind: 'student', source: 'hapana-1', target: member.id })).code, 200);
+    assert.equal((await request(adminHandler, 'Demo Admin', 'admin', { action: 'link_identity', date, kind: 'student', sessionId: date + ':100:1', source: 'hapana-1', target: member.id })).code, 200);
     feed = await request(feedbackHandler, 'Sai', 'tutor'); assert.equal(feed.body.sessions[0].students[0].name, 'Example Student'); assert.equal(feed.body.sessions[0].students[0].email, member.parentEmail);
-    assert.equal((await request(adminHandler, 'Demo Admin', 'admin', { action: 'link_identity', date, kind: 'student', source: 'not-collected', target: member.id })).code, 400);
+    assert.equal((await request(adminHandler, 'Demo Admin', 'admin', { action: 'link_identity', date, kind: 'student', sessionId: date + ':100:1', source: 'not-collected', target: member.id })).code, 400);
     assert.equal((await request(adminHandler, 'Demo Admin', 'admin', { action: 'link_identity', date, kind: 'tutor', source: 'Sai Arulanathan', target: 'Unknown' })).code, 400);
+  } finally { fixture.restore(); }
+});
+
+test('parent-owned Hapana records link different children per dated class without guessing a parent name', async t => {
+  const fixture = setup(t);
+  try {
+    const sibling = { ...member, id: 'member-2', firstName: 'Sibling' };
+    fixture.sheets.set('contacts', [Object.keys(member), Object.values(member), Object.values(sibling)]);
+    const raw = capture('parent-bookings', 'Demo Tutor', 'Parent');
+    raw.sessions.push({ ...raw.sessions[0], hapanaSessionId: date + ':101:1', startMinute: 1020, endMinute: 1080 });
+    await importRolls(raw, collectionTicket('parramatta', 'Demo Admin', date, raw.captureId), 'parramatta', 'Demo Admin');
+    let overview = await request(adminHandler, 'Demo Admin', 'admin');
+    assert.equal(overview.body.students.length, 2);
+    assert.ok(overview.body.students.every((student: any) => student.target === ''));
+    const link = (sessionId: string, target: string) => request(adminHandler, 'Demo Admin', 'admin', { action: 'link_identity', date, kind: 'student', source: 'hapana-1', sessionId, target });
+    assert.equal((await link(date + ':999:1', member.id)).code, 400);
+    assert.equal((await request(adminHandler, 'Demo Admin', 'admin', { action: 'link_identity', date, kind: 'student', source: 'hapana-1', target: member.id })).code, 400);
+    assert.equal((await link(date + ':100:1', member.id)).code, 200);
+    overview = await request(adminHandler, 'Demo Admin', 'admin');
+    assert.deepEqual(overview.body.students.map((student: any) => student.target), [member.id, '']);
+    assert.equal((await link(date + ':101:1', sibling.id)).code, 200);
+    const feed = await request(feedbackHandler, 'Demo Tutor', 'tutor');
+    assert.deepEqual(feed.body.sessions.map((session: any) => session.students[0].id), [member.id, sibling.id]);
+    assert.deepEqual(feed.body.sessions.map((session: any) => session.students[0].name), ['Example Student', 'Sibling Student']);
+    assert.ok(feed.body.sessions.every((session: any) => session.students[0].email === member.parentEmail));
+    // The same class on a later day must not inherit a parent-to-child assumption.
+    const nextDate = '2026-10-21', next = { ...capture('parent-next-day', 'Demo Tutor', 'Parent'), date: nextDate };
+    next.sessions[0].hapanaSessionId = nextDate + ':100:1';
+    await importRolls(next, collectionTicket('parramatta', 'Demo Admin', nextDate, next.captureId), 'parramatta', 'Demo Admin');
+    assert.equal((await request(adminHandler, 'Demo Admin', 'admin', undefined, { date: nextDate })).body.students[0].target, '');
+    assert.equal((await link(date + ':100:1', '')).code, 200);
+    assert.equal((await request(adminHandler, 'Demo Admin', 'admin')).body.students[0].target, '');
   } finally { fixture.restore(); }
 });
 

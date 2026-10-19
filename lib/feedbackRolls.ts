@@ -121,11 +121,15 @@ export async function importRolls(raw: unknown, ticket: unknown, campus: string,
   await appendSheetRows(SHEET, HEADERS, rows, rollSpreadsheetId());
   return { replayed: false, capture };
 }
-export async function saveRollLink(campus: string, actor: string, kind: unknown, source: unknown, target: unknown, tutors: TutorConfig[], members: Member[]) {
+export function bookingLinkKey(sessionId: string, studentId: string) { return JSON.stringify([sessionId, studentId]); }
+export async function saveRollLink(campus: string, actor: string, kind: unknown, source: unknown, target: unknown, tutors: TutorConfig[], members: Member[], sessionId?: string) {
   if (kind !== 'tutor' && kind !== 'student') return fail('Invalid link type.');
   const key = text(source, 'source identity', 200), chosen = typeof target === 'string' ? target.trim() : fail('Invalid linked identity.');
   if (chosen && !(kind === 'tutor' ? tutors.some(t => t.active && t.campusKey === campus && t.tutorName === chosen) : members.some(m => m.active && m.id === chosen))) return fail('Choose an active portal account or member.');
-  await appendSheetRows(SHEET, HEADERS, [event('link', campus, actor, '', '', Date.now(), { kind, source: key, target: chosen })], rollSpreadsheetId());
+  // Parent-owned Hapana records can represent different children in different classes.
+  // New student links apply only to this dated class; old explicit global links remain readable.
+  const scoped = kind === 'student' && sessionId;
+  await appendSheetRows(SHEET, HEADERS, [event('link', campus, actor, '', '', Date.now(), { kind: scoped ? 'booking' : kind, source: scoped ? bookingLinkKey(sessionId, key) : key, target: chosen })], rollSpreadsheetId());
 }
 export function linkedRoster(state: ReturnType<typeof rollState>, campus: string, tutors: TutorConfig[], members: Member[]) {
   const activeTutors = tutors.filter(t => t.active && t.campusKey === campus), activeMembers = members.filter(m => m.active);
@@ -134,13 +138,14 @@ export function linkedRoster(state: ReturnType<typeof rollState>, campus: string
     const candidates = activeTutors.filter(t => linked !== undefined ? t.tutorName === linked : nameKey(t.tutorName) === key);
     return candidates.length === 1 ? candidates[0].tutorName : '';
   }
-  function memberFor(student: { id: string; name: string }) {
-    const linked = state.mappings.get('student:' + student.id);
+  function memberFor(student: { id: string; name: string }, sessionId?: string) {
+    const booking = sessionId ? state.mappings.get('booking:' + bookingLinkKey(sessionId, student.id)) : undefined;
+    const linked = booking !== undefined ? booking : state.mappings.get('student:' + student.id);
     const candidates = activeMembers.filter(m => linked !== undefined ? m.id === linked : nameKey(`${m.firstName} ${m.lastName}`) === nameKey(student.name));
     return candidates.length === 1 ? candidates[0] : null;
   }
   const rows = state.sessions.flatMap(session => session.students.map(student => {
-    const member = memberFor(student);
+    const member = memberFor(student, session.hapanaSessionId);
     return { campusKey: campus, tutorName: tutorFor(session.tutorNameRaw), specificDate: state.latest?.date, entryType: 'one_off', isMakeup: false, startTime: minuteTime(session.startMinute), endTime: minuteTime(session.endMinute), studentId: member?.id || '', studentName: student.name, active: true };
   }));
   return { rows, tutorFor, memberFor };

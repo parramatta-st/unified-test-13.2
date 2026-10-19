@@ -1,6 +1,6 @@
 /* Runs only on the named portal origin. Auth stays in the portal's signed cookie. */
 (() => {
-  if(location.origin!=='https://unified-test-13-2.vercel.app')return;
+  if(!['https://unified-site.successtutoringparramatta.com','https://unified-test-13-2.vercel.app'].includes(location.origin))return;
   chrome.runtime.onMessage.addListener((message,sender,respond)=>{
     if(sender.id!==chrome.runtime.id||message?.namespace!=='stp-rolls'||message.type!=='PORTAL_SCHEDULE_REQUEST')return;
     const body=message.body;

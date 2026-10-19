@@ -3,7 +3,7 @@ import { requireAdmin } from '../../../lib/adminAuth';
 import { getActiveTutors } from '../../../lib/tutorConfig';
 import { loadMembers } from '../../../lib/members';
 import { scheduleDate } from '../../../lib/feedbackSchedule';
-import { collectionTicket, importRolls, linkedRoster, nameKey, readRollEvents, rollCampusEnabled, rollState, rollSyncConfigured, RollsError, saveRollLink, sourceTutor } from '../../../lib/feedbackRolls';
+import { collectionTicket, importRolls, linkedRoster, minuteTime, nameKey, readRollEvents, rollCampusEnabled, rollState, rollSyncConfigured, RollsError, saveRollLink, sourceTutor } from '../../../lib/feedbackRolls';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.setHeader('Cache-Control', 'no-store');
@@ -36,17 +36,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (req.method === 'POST') {
       if (body.action !== 'link_identity') throw new RollsError(400, 'Unknown schedule action.');
       const source = body.kind === 'tutor' ? nameKey(sourceTutor(String(body.source || ''))) : body.source;
-      const exists = state.sessions.some(session => body.kind === 'tutor' ? nameKey(sourceTutor(session.tutorNameRaw)) === source : session.students.some(student => student.id === source));
+      if (body.kind === 'student' && typeof body.sessionId !== 'string') throw new RollsError(400, 'Choose the student’s class before linking.');
+      const exists = state.sessions.some(session => body.kind === 'tutor' ? nameKey(sourceTutor(session.tutorNameRaw)) === source : session.hapanaSessionId === body.sessionId && session.students.some(student => student.id === source));
       if (!exists) throw new RollsError(400, 'This identity is not in the selected saved day.');
-      await saveRollLink(admin.campus, admin.tutor, body.kind, source, body.target, tutors, members.members);
+      await saveRollLink(admin.campus, admin.tutor, body.kind, source, body.target, tutors, members.members, body.kind === 'student' ? body.sessionId : undefined);
       return res.json({ ok: true });
     }
     const linked = linkedRoster(state, admin.campus, tutors, members.members);
     const instructorNames = [...new Set(state.sessions.map(session => sourceTutor(session.tutorNameRaw)))];
-    const students = [...new Map(state.sessions.flatMap(session => session.students).map(student => [student.id, student])).values()];
+    const students = state.sessions.flatMap(session => session.students.map(student => ({ source: student.id, name: student.name, sessionId: session.hapanaSessionId, classLabel: `${minuteTime(session.startMinute)}–${minuteTime(session.endMinute)} · ${session.sessionTitle} · ${sourceTutor(session.tutorNameRaw)}`, target: linked.memberFor(student, session.hapanaSessionId)?.id || '' })));
     return res.json({ ok: true, date, lastSync: state.latest?.savedAt || '', mode: state.commits.at(-1)?.capture.mode || '', sessions: state.sessions.length,
       instructors: instructorNames.map(name => ({ source: name, target: linked.tutorFor(name) })),
-      students: students.map(student => ({ source: student.id, name: student.name, target: linked.memberFor(student)?.id || '' })),
+      students,
       tutors: tutors.map(tutor => tutor.tutorName), members: members.members.filter(member => member.active).map(member => ({ id: member.id, name: `${member.firstName} ${member.lastName}`, year: member.years, parentName: member.parentName })) });
   } catch (error) {
     if (!(error instanceof RollsError)) console.error('[feedback-rolls] schedule request failed');
