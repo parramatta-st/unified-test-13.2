@@ -1823,6 +1823,8 @@ main.container {
 
 .feedback-student-mode{margin-top:1rem;padding:1rem;border:1px solid #3f3f46;border-radius:14px;background:#121215}
 .feedback-heading{display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap}
+.roll-link-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:1rem;margin:1rem 0 1.5rem}
+.roll-link-grid label{display:grid;gap:.4rem;min-width:0}.roll-link-grid select{width:100%;min-width:0}
 .feedback-heading .section-title{margin:0!important}
 .feedback-heading .feedback-student-switch{margin:0 0 0 auto;flex-shrink:0}
 .feedback-student-switch .seg-btn{color:#e5e7eb;white-space:nowrap}.feedback-student-switch .seg-btn.active{color:#111827}

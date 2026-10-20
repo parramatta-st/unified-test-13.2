@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Daily Rolls • Success Tutoring Parramatta</title>
+  <link rel="stylesheet" href="review.css">
+  <link rel="stylesheet" href="portal-theme.css"><link rel="stylesheet" href="print-upgrade.css">
+  <script src="model.js" defer></script><script src="reader.js" defer></script><script src="print-fit.js" defer></script><script src="schedule-model.js" defer></script><script src="schedule-ui.js" defer></script><script src="feedback-model.js" defer></script><script src="feedback-sync-ui.js" defer></script><script src="review.js" defer></script>
+</head>
+<body>
+  <div class="workspace no-print">
+    <header class="topbar"><div class="brand-mark" aria-hidden="true">ST</div><div><div class="brand-title"><span class="brand-success">Success</span> Tutoring <span class="brand-product">Daily Rolls</span></div><div class="eyebrow">PARRAMATTA · YOUR DAILY ROOM PLANNER</div></div><span class="local-tag">Local to this browser</span><a href="START-HERE.html" target="_blank" rel="noopener">Help &amp; setup ↗</a></header>
+    <main>
+      <div id="demo-banner" class="notice demo" hidden>DEMO — fictional students and classes, not your Hapana bookings.</div>
+      <section class="intro"><div><div class="eyebrow">YOUR DAY, ORGANISED</div><h1 id="date-heading">Let’s prepare your rolls.</h1><p>Collect the classes. Choose their rooms. Print and go.</p></div><button id="refresh" class="button primary">Collect selected day</button></section>
+      <section class="status-panel" aria-label="Collection status"><div class="status-line"><span id="status-dot" class="dot"></span><strong id="status" role="status" aria-live="polite">Preparing…</strong><button id="cancel" class="text-button" hidden>Stop collection</button></div><progress id="progress" value="0" max="1" hidden></progress><p id="status-detail">Use Hapana’s Day view. Clear schedule filters first so all classes are included.</p><div id="stats" class="stats"></div></section>
+      <div id="errors" class="notice error" role="alert" hidden></div>
+      <div id="welcome" class="notice" hidden><p>Install the extension and open this screen from your logged-in Hapana Day view.</p><a class="button secondary" href="review.html?demo=1">Explore a sample day</a></div>
+      <section class="schedule-panel" aria-labelledby="schedule-heading">
+        <div class="eyebrow">TIME CLOCK INTEGRATION</div>
+        <h2 id="schedule-heading">Saved tutor schedules</h2>
+        <p>Verified collections save tutor assignments and class times, then sync them through your admin sign-in on the portal. Regenerate rolls after changing a tutor in Hapana.</p>
+        <label class="full-day-option"><input type="checkbox" id="schedule-full-day"> All classes for this day are visible in Hapana (no schedule filters).</label>
+        <p class="hint">Tick before collecting to replace the full day, including removing classes no longer listed. Otherwise, only the classes seen are updated. Assessment and one-to-one sessions remain excluded.</p>
+        <div class="actions schedule-actions"><label>Saved date <input type="date" id="schedule-date"></label><button id="schedule-load" class="button secondary">View saved day</button><button id="schedule-retry" class="button secondary">Retry saving / syncing</button><button id="schedule-export" class="button secondary" disabled>Export tutor schedule</button></div>
+        <p id="schedule-status" class="hint" role="status" aria-live="polite">Preparing saved schedules…</p>
+        <div id="schedule-list" class="schedule-list"></div>
+        <details><summary>Assignment history</summary><ul id="schedule-history"></ul></details>
+        <p class="hint">This tutor-only backup has no student or parent details. Time Clock sync uses its separate portal integration. The new student booking sync for Feedback is shown below; check its own confirmation.</p>
+      </section>
+      <section class="schedule-panel" aria-label="Student bookings for Feedback">
+        <div class="eyebrow">DAILY ROLLS 0.6.1 · STUDENT BOOKINGS</div><h2>Connect today’s students to Feedback</h2>
+        <p>Sign in to the portal as an admin in this Chrome profile before collecting. Only verified class times, tutor names and student names/IDs are sent. Phone numbers, payments and parent contacts stay out of this sync.</p>
+        <p id="feedback-sync-status" class="hint" role="status" aria-live="polite">Collect a day to sync its students.</p>
+        <div class="actions"><button id="feedback-sync-retry" class="button secondary" disabled>Retry student sync</button><a class="button secondary" href="https://unified-site.successtutoringparramatta.com/admin/feedback-schedule" target="_blank" rel="noopener">Link tutors and students ↗</a></div>
+        <p class="hint">A tutor’s My schedule switch appears after their instructor name is linked to their portal account and bookings for today have synced. This is separate from tutor-only Time Clock sync above.</p>
+      </section>
+      <section id="allocation" hidden>
+        <div class="section-heading"><div><h2>Choose your rooms</h2><p>Move each class using its room dropdown, or drag it into a room. Sharing is welcome.</p></div><div class="actions"><button id="suggest" class="button secondary">Suggest rooms</button><button id="clear" class="button secondary">Clear rooms</button></div></div>
+        <div id="board" class="board"></div>
+        <details id="excluded-detail"><summary id="excluded-summary">Excluded sessions</summary><ul id="excluded-list"></ul></details>
+        <section class="print-settings"><div><div class="eyebrow">READY FOR THE CENTRE</div><h2>Print your rolls</h2><p>One A4 page per tutor, with every class together. Room rolls keep large, easy-to-read names.</p></div><div class="print-options"><label><input id="show-phone" type="checkbox" checked> Phone on tutor rolls</label><label><input id="show-payment" type="checkbox" checked> Payment on tutor rolls</label><label class="size-label">Room-roll name size <select id="name-size"><option value="18">Large · 18 pt</option><option value="22" selected>Extra large · 22 pt</option><option value="26">Display · 26 pt</option></select></label></div><div class="actions"><button id="preview-rooms" class="button secondary">Preview room rolls</button><button id="preview-tutors" class="button secondary">Preview tutor rolls</button><button id="print-all" class="button primary">Preview all rolls</button></div><p id="print-reason" class="hint"></p></section>
+      </section>
+      <footer>Read-only collection · No bookings or attendance are changed in Hapana · No saved room preferences</footer>
+    </main>
+  </div>
+  <section id="print-view" hidden>
+    <div class="print-toolbar no-print"><button id="back" class="button secondary">← Back to room choices</button><span id="preview-label"></span><button id="print" class="button primary">Print / Save as PDF</button></div>
+    <p class="print-instructions no-print">A4 · Portrait · Scale 100% · Single-sided · Headers and footers off · Colour + background graphics on</p>
+    <p id="print-fit-notice" class="print-fit-notice no-print" role="status" hidden></p>
+    <div id="print-pages"></div>
+  </section>
+</body></html>

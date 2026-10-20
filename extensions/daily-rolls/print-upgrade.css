@@ -1,0 +1,47 @@
+/* Identical paper metrics in preview and print, independent of the screen theme. */
+.print-page {
+  --print-blue:#31c8ff; --print-orange:#ff7a18;
+  --blue:#07638a; --ink:#132b44; --muted:#455d73;
+  color-scheme:light; background:#fff; color:#132b44;
+  font-family:Arial,Helvetica,sans-serif; letter-spacing:normal;
+}
+.page-header {border-bottom:2px solid var(--print-blue); border-top:5px solid var(--print-orange); padding-top:3mm; flex-shrink:0}
+.page-header .eyebrow {color:#096484; letter-spacing:1.3px; font-weight:700; font-size:8pt}
+.page-header h1 {color:#123659; font-weight:700; overflow-wrap:anywhere}
+.page-header .page-type {color:#86400a; font-weight:700; letter-spacing:.5pt}
+.page-body {overflow:hidden}
+.print-class header {background:#eaf8ff; border-left:4px solid var(--print-orange)}
+.print-class h2 {color:#104f71; font-weight:700; letter-spacing:normal}
+.print-class th {color:#175875; border-bottom:1px solid #31a7d0}
+.print-class td {color:#132b44}
+.print-class tr:nth-child(even) td {background:#f6fbfe}
+.print-class .tick-box {border-color:#166d8e; border-radius:1px; background:white}
+.page-footer {flex-shrink:0; border-color:#31a7d0; color:#455d73}
+.page-footer .page-number {text-align:right}
+.tutor-page {padding:10mm 12mm}
+.tutor-page .page-header {padding-top:2mm; padding-bottom:3mm; margin-bottom:3mm}
+.tutor-page .page-header h1 {font-size:23pt; line-height:1.15; margin:1.5mm 0}
+.tutor-page .page-date {font-size:10pt}
+.tutor-page .page-type {font-size:8pt; margin-top:1.3mm}
+.tutor-page .print-demo {font-size:8pt; line-height:1.3; margin-top:1mm}
+.tutor-fit-content {
+  display:flow-root; width:100%; transform-origin:top left;
+  --tutor-name-size:14pt; --tutor-cell-padding:1.6mm; --tutor-class-gap:4mm;
+}
+.tutor-page .print-class {margin:0 0 var(--tutor-class-gap)}
+.tutor-page .print-class:last-child {margin-bottom:0}
+.tutor-page .print-class header {padding:1.7mm 2.5mm; margin-bottom:.8mm}
+.tutor-page .print-class h2 {font-size:10.5pt; line-height:1.25; margin-bottom:.6mm}
+.tutor-page .class-subtitle {display:inline; font-size:9pt; line-height:1.25; font-weight:700}
+.tutor-page .booked-label {display:inline; font-size:8pt; line-height:1.25; margin-left:3mm}
+.tutor-page .print-class th {font-size:8pt; padding:1mm 1.5mm; line-height:1.2}
+.tutor-page .print-class td {font-size:var(--tutor-name-size); padding:var(--tutor-cell-padding) 1.5mm; line-height:1.2}
+.tutor-page .print-class .phone-cell {font-size:9pt}
+.tutor-page .print-class .payment-cell {font-size:8pt}
+.tutor-page .attend-col {width:8mm}
+.tutor-page .tick-box {width:3.5mm; height:3.5mm}
+.tutor-page .no-bookings {padding:2mm; font-size:10pt}
+.tutor-page .page-footer {font-size:7pt; padding-top:2mm; margin:3mm 0 0; line-height:1.3}
+@media print {
+  .print-page {color-adjust:exact; print-color-adjust:exact; -webkit-print-color-adjust:exact}
+}
