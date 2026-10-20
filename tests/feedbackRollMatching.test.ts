@@ -42,6 +42,40 @@ test('siblings and duplicate full student names remain unresolved and get explic
   assert.equal(duplicates.studentMatch(source('Same Student')).value, null);
   assert.deepEqual(duplicates.suggestStudents('Same Student').map(value => value.id), ['a', 'b']);
 });
+test('Hapana parent full name matches the single parent-first-name field shown in the portal', () => {
+  const m = match([child('s10', 'Vishnuchith', 'Balakrishnan', 'Balakrishnan')]);
+  const result = m.studentMatch(source('Balakrishnan Ramalingam'));
+  assert.equal(result.value?.id, 's10'); assert.equal(result.reason, 'parent_first_name');
+  assert.equal(m.studentMatch(source('BALAKRISHNAN')).value?.id, 's10');
+  assert.equal(m.studentMatch(source('Balakrish Ramalingam')).value, null, 'Prefixes are not exact first names');
+});
+test('parent first-name matching works with the surname missing on either side', () => {
+  const m = match([child('a', 'First', 'Child', 'Parentname Example')]);
+  assert.equal(m.studentMatch(source('Parentname')).value?.id, 'a');
+  assert.equal(m.studentMatch(source('Parentname')).reason, 'parent_first_name');
+  assert.equal(m.studentMatch(source('Parentname Different')).value, null, 'Two conflicting complete parent names never auto-match');
+});
+test('duplicate parent first names and siblings require review even when one saved record omits the surname', () => {
+  const m = match([child('a', 'First', 'Child', 'Balakrishnan'), child('b', 'Second', 'Child', 'Balakrishnan Other')]);
+  for (const name of ['Balakrishnan', 'Balakrishnan Ramalingam']) {
+    assert.equal(m.studentMatch(source(name)).value, null); assert.equal(m.studentMatch(source(name)).reason, 'ambiguous_parent');
+    assert.deepEqual(m.suggestStudents(name).map(value => value.id), ['a', 'b']);
+  }
+  assert.equal(m.studentMatch(source('Balakrishnan Other')).value?.id, 'b', 'A complete exact parent name still disambiguates');
+  const siblings = match([child('a', 'First', 'Child', 'Balakrishnan'), child('b', 'Second', 'Child', 'Balakrishnan')]);
+  assert.equal(siblings.studentMatch(source('Balakrishnan Ramalingam')).value, null);
+});
+test('student full name wins over a shortened parent-name match; inactive children do not create collisions', () => {
+  const m = match([child('a', 'Balakrishnan', 'Ramalingam'), child('b', 'Vishnuchith', 'Balakrishnan', 'Balakrishnan')]);
+  assert.equal(m.studentMatch(source('Balakrishnan Ramalingam')).value?.id, 'a');
+  const active = child('a', 'First', 'Child', 'Balakrishnan'), inactive = { ...child('b', 'Second', 'Child', 'Balakrishnan'), active: false };
+  assert.equal(match([active, inactive]).studentMatch(source('Balakrishnan Ramalingam')).value?.id, 'a');
+});
+test('misspelled parent first names produce review suggestions when the portal omits the surname', () => {
+  const m = match([child('a', 'Vishnuchith', 'Example', 'Balakrishnan')]);
+  assert.equal(m.studentMatch(source('Balakrishan Ramalingam')).value, null);
+  assert.deepEqual(m.suggestStudents('Balakrishan Ramalingam'), [{ id: 'a', via: 'parent' }]);
+});
 test('spelling differences and adjacent letter swaps suggest students/parents without ever auto-linking', () => {
   const m = match([child('a', 'Aaradhya', 'Gupta'), child('b', 'Example', 'Child', 'Balakrishnan Ramalingam')]);
   assert.equal(m.studentMatch(source('Aaradhya Gupat')).value, null);
