@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const ts = require('typescript');
 const {spawn}=require('node:child_process');
-const {chromium}=require('playwright');
+const {chromium,webkit}=require('playwright');
 const {routeApis,token,waitServer,ORIGIN,SECRET}=require('./print-browser-fixtures.cjs');
 const compiled=ts.transpileModule(fs.readFileSync('lib/studentPrintHistory.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
 const historyExports={};vm.runInNewContext(compiled,{exports:historyExports});
@@ -15,6 +15,44 @@ const fulfill=(route,json,status=200)=>route.fulfill({status,contentType:'applic
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function until(check){for(let i=0;i<100;i++){if(await check())return;await pause(50);}throw Error('Expected condition did not become true');}
 async function pick(page,name){const input=page.getByPlaceholder('Search name or email...');await input.fill(name);await page.locator('.suggest-item').filter({has:page.getByText(name,{exact:true})}).click();}
+async function toolbarFits(page){
+ const geometry=await page.locator('.feedback-schedule-toolbar').evaluate(toolbar=>{
+   const rect=el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom};};
+   return {toolbar:rect(toolbar),controls:[...toolbar.querySelectorAll('input,button')].map(rect)};
+ });
+ const {toolbar,controls}=geometry;
+ for(const control of controls){
+   assert.ok(control.left>=toolbar.left-1&&control.right<=toolbar.right+1,'Schedule control stays inside the toolbar');
+ }
+ for(let i=0;i<controls.length;i++)for(let j=i+1;j<controls.length;j++){
+   const a=controls[i],b=controls[j];
+   assert.ok(a.right<=b.left+1||b.right<=a.left+1||a.bottom<=b.top+1||b.bottom<=a.top+1,'Schedule date and buttons must not overlap');
+ }
+ assert.ok(controls[0].bottom<=controls[1].top+1,'Phone date gets a full row above the buttons');
+}
+async function testPhoneDateToolbar(browser,viewport){
+ const ctx=await browser.newContext({viewport,isMobile:true,hasTouch:true,deviceScaleFactor:3,reducedMotion:'reduce'});
+ await ctx.addCookies([{name:'st_sess',value:token(),url:ORIGIN,httpOnly:true,sameSite:'Lax'}]);
+ const page=await ctx.newPage(),errors=[];page.on('pageerror',error=>errors.push(String(error)));
+ await routeApis(page);
+ try{
+   await page.goto(ORIGIN+'/feedback');
+   // Date inputs do not expose a consistent textbox role across browser engines.
+   const date=page.getByLabel('Schedule date');await date.waitFor();
+   await toolbarFits(page);
+   const original=await date.inputValue(),next=new Date(original+'T12:00:00Z');next.setUTCDate(next.getUTCDate()+1);
+   const tomorrow=next.toISOString().slice(0,10);
+   await Promise.all([page.waitForResponse(r=>r.url().includes('/api/feedback-schedule?date='+tomorrow)),date.fill(tomorrow)]);
+   assert.equal(await date.inputValue(),tomorrow);
+   await page.getByRole('button',{name:'Today',exact:true}).click();assert.equal(await date.inputValue(),original);
+   await Promise.all([page.waitForResponse(r=>r.url().includes('/api/feedback-schedule?date='+original)),page.getByRole('button',{name:'Refresh schedule',exact:true}).click()]);
+   await toolbarFits(page);
+   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth)<=1,'iPhone toolbar does not widen the page');
+   await page.screenshot({path:`qa-artifacts/feedback-date-webkit-${viewport.width}.png`});
+   assert.deepEqual(errors,[]);
+   console.log('PASS WebKit phone',viewport.width,'date and buttons never overlap; date selection, Today and Refresh work');
+ }finally{await ctx.close();}
+}
 async function feedbackInView(page,name){
  await until(()=>page.evaluate(()=>{
    const form=document.querySelector('.feedback-form'),header=document.querySelector('.header');
@@ -71,6 +109,7 @@ async function testViewport(browser,viewport){
   assert.equal(await page.evaluate(()=>scrollY),0,'Loading the page does not jump to the form');
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth)<=5,'Feedback fits the viewport');
   if(mobile){
+    await toolbarFits(page);
     assert.ok(title.height<26,'Phone heading stays compact');
     assert.ok(toggle.height<=44,'Phone mode buttons stay compact');
     assert.ok(await page.locator('.feedback-schedule-students button').first().evaluate(el=>el.getBoundingClientRect().height)<=40,'Student buttons stay compact');
@@ -201,6 +240,6 @@ async function testViewport(browser,viewport){
  fs.mkdirSync('qa-artifacts',{recursive:true});
  const app=spawn(process.execPath,['node_modules/next/dist/bin/next',process.env.QA_USE_BUILD === '1' ? 'start' : 'dev','-H','127.0.0.1','-p','3100'],{env:{...process.env,SESSION_SECRET:SECRET,TUTOR_PASSWORD:'qa-only-password',NEXT_PUBLIC_CAMPUSES_JSON:JSON.stringify([{id:'parramatta',name:'Epping',tutors:['QA Tutor']}]),NEXT_TELEMETRY_DISABLED:'1'},stdio:['ignore','pipe','pipe']});
  let logs='';app.stderr.on('data',chunk=>logs+=chunk);let browser;
- try{await waitServer();browser=await chromium.launch({headless:true,args:['--no-sandbox']});for(const viewport of [{width:1440,height:1000},{width:390,height:844},{width:320,height:740}])await testViewport(browser,viewport);console.log('PRINT ACTIVITY BROWSER FLOWS PASSED');}
+ try{await waitServer();browser=await chromium.launch({headless:true,args:['--no-sandbox']});for(const viewport of [{width:1440,height:1000},{width:390,height:844},{width:320,height:740}])await testViewport(browser,viewport);await browser.close();browser=await webkit.launch({headless:true});for(const viewport of [{width:320,height:740},{width:390,height:844},{width:430,height:932}])await testPhoneDateToolbar(browser,viewport);console.log('PRINT ACTIVITY BROWSER FLOWS PASSED');}
  finally{if(browser)await browser.close();app.kill('SIGTERM');if(logs)console.log(logs.slice(-2500));}
 })().catch(error=>{console.error(error);process.exitCode=1;});
