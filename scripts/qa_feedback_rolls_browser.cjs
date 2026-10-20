@@ -82,7 +82,7 @@ const html=e=>`<${e.tagName.toLowerCase()} ${Object.entries(e.attrs).map(([k,v])
  const synced=()=>review.waitForFunction(()=>document.getElementById('feedback-sync-status').textContent.startsWith('Student bookings synced to Feedback')&&!document.getElementById('refresh').disabled,{},{timeout:60000});
  await synced();
  assert.equal(await review.getByRole('link',{name:'Link tutors and students ↗'}).getAttribute('href'),PORTAL+'/admin/feedback-schedule');
- assert.equal(imports.length,1);assert.ok(!JSON.stringify(imports).includes('04XX'));assert.ok(!JSON.stringify(imports).includes('Pending'));assert.equal(imports[0].sessions[0].students[0].id,'sample0');
+ assert.equal(imports.length,1);assert.ok(!JSON.stringify(imports).includes('04XX'));assert.ok(!JSON.stringify(imports).includes('Pending'));assert.deepEqual(imports[0].sessions[0].students.map(student=>student.id).sort(),['sample0','sample1']);assert.equal(imports[0].sessions[0].students.find(student=>student.id==='sample1').name,'Parent Booking');
  await portal.bringToFront();await portal.getByRole('button',{name:'Refresh saved day'}).click();
  await portal.getByLabel('Portal account for Sai Arulanathan',{exact:true}).waitFor();
  await portal.getByLabel('Portal account for Sai Arulanathan',{exact:true}).selectOption('Sai');await portal.getByText('Link saved. Refresh the tutor’s Feedback page to use it.').waitFor();
