@@ -536,6 +536,7 @@ function handleCustomChange(v: string) {
             <button
               type="button"
               className={`seg-btn ${!isCustom ? 'active' : ''}`}
+              aria-pressed={!isCustom}
               onClick={() => setFeedbackMode('curriculum')}
             >
               Curriculum feedback
@@ -543,6 +544,7 @@ function handleCustomChange(v: string) {
             <button
               type="button"
               className={`seg-btn ${isCustom ? 'active' : ''}`}
+              aria-pressed={isCustom}
               onClick={() => setFeedbackMode('custom')}
             >
               Custom feedback

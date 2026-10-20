@@ -1877,3 +1877,8 @@ main.container {
   .feedback-page .recent-students{margin-top:.65rem}
   .feedback-page .recent-chip{min-height:36px;padding:.35rem .6rem;font-size:.78rem}
 }
+@media(max-width:360px){
+  .feedback-page .feedback-schedule-toolbar label{flex-basis:100%}
+  .feedback-page .feedback-schedule-toolbar .btn{flex:1}
+  .feedback-page .feedback-form .grid-2{grid-template-columns:minmax(0,1fr)}
+}

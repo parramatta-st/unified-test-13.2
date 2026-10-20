@@ -19,7 +19,8 @@ async function feedbackInView(page,name){
  await until(()=>page.evaluate(()=>{
    const form=document.querySelector('.feedback-form'),header=document.querySelector('.header');
    const top=form.getBoundingClientRect().top,bottom=header.getBoundingClientRect().bottom;
-   return document.activeElement===form&&top>=bottom-1&&top<innerHeight-150;
+   const atEnd=document.documentElement.scrollHeight-innerHeight-scrollY<3;
+   return document.activeElement===form&&top>=bottom-1&&top<innerHeight-150&&(Math.abs(top-bottom-12)<3||atEnd);
  }));
  assert.equal(await page.locator('.feedback-recipient strong').textContent(),name);
 }
@@ -78,6 +79,7 @@ async function testViewport(browser,viewport){
   await page.screenshot({path:`qa-artifacts/feedback-heading-${viewport.width}.png`,fullPage:true});
   await page.locator('.feedback-schedule-students button').first().click();
   await feedbackInView(page,'QA Student');
+  await pause(150); // Let the compositor finish painting the completed smooth scroll.
   assert.ok(await page.evaluate(()=>scrollY)>0,'Selecting a scheduled student scrolls past the roster');
   await page.screenshot({path:`qa-artifacts/feedback-selected-${viewport.width}.png`});
   await page.getByRole('button',{name:'Custom feedback',exact:true}).click();
