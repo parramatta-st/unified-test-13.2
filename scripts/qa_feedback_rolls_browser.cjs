@@ -6,7 +6,7 @@ const {fixture,El}=require('../extensions/daily-rolls/tests/dom-fixture.cjs');
 const PORTAL='https://unified-site.successtutoringparramatta.com',LOCAL='http://127.0.0.1:3115',SECRET='fictional-feedback-rolls-only',DATE='2026-09-12';
 const profile=fs.mkdtempSync(path.join(os.tmpdir(),'feedback-rolls-browser-')),extension=path.resolve('extensions/daily-rolls');
 const artifacts=path.resolve('qa-artifacts/feedback-rolls');fs.mkdirSync(artifacts,{recursive:true});
-const contacts=[{id:'m1',firstName:'Student',lastName:'Example 1',parentName:'First Parent',parentEmail:'first@example.invalid',years:'Year 4',active:true},{id:'m2',firstName:'Canonical',lastName:'Student',parentName:'Second Parent',parentEmail:'second@example.invalid',years:'Year 5',active:true}];
+const contacts=[{id:'m1',firstName:'Student',lastName:'Example 1',parentName:'First Parent',parentEmail:'first@example.invalid',years:'Year 4',active:true},{id:'m2',firstName:'Canonical',lastName:'Student',parentName:'Second Parent',parentEmail:'second@example.invalid',years:'Year 5',active:true},{id:'m3',firstName:'Vishnuchith',lastName:'Example',parentName:'Balakrishnan Ramalingam',parentEmail:'third@example.invalid',years:'Year 3',active:true}];
 const sheets=new Map([['contacts',[Object.keys(contacts[0]),...contacts.map(Object.values)]]]);
 let failWrites=false,tutor='Sai Arulanathan',context,app,portal,review,logs='';
 const imports=[];
@@ -62,7 +62,7 @@ const html=e=>`<${e.tagName.toLowerCase()} ${Object.entries(e.attrs).map(([k,v])
  });
  await context.route('https://core.hapana.com/**',route=>{
    const url=new URL(route.request().url()),eid=url.searchParams.get('eid')||'100',f=fixture({eid,tutor:eid==='100'?tutor:'Other Tutor'});
-   if(eid==='100'){const rename=node=>{if(node.text==='Student Example 2')node.text='Parent Booking';node.children.forEach(rename);};rename(f.doc);}
+   const rename=node=>{if(eid==='100'&&node.text==='Student Example 2')node.text='Parent Booking';if(eid==='200'){if(node.text==='Student Example 1')node.text='Balakrishnan Ramalingam';if(node.text==='Student Example 2')node.text='Canoncal Student';if(node.attrs.href?.includes('cid=sample'))node.attrs.href=node.attrs.href.replace('cid=sample','cid=other');}node.children.forEach(rename);};rename(f.doc);
    f.doc.querySelector('#getdaymyEvents').children=['100','200'].map(id=>new El('li','',{},[new El('a','10:00 AM K-6 English Study Hub(2)',{href:fixture({eid:id}).href})]));
    return route.fulfill({contentType:'text/html',body:'<!doctype html><html><head><title>Fictional Hapana</title></head>'+html(f.doc)+'</html>'});
  });
@@ -85,9 +85,27 @@ const html=e=>`<${e.tagName.toLowerCase()} ${Object.entries(e.attrs).map(([k,v])
  assert.equal(imports.length,1);assert.ok(!JSON.stringify(imports).includes('04XX'));assert.ok(!JSON.stringify(imports).includes('Pending'));assert.deepEqual(imports[0].sessions[0].students.map(student=>student.id).sort(),['sample0','sample1']);assert.equal(imports[0].sessions[0].students.find(student=>student.id==='sample1').name,'Parent Booking');
  await portal.bringToFront();await portal.getByRole('button',{name:'Refresh saved day'}).click();
  await portal.getByLabel('Portal account for Sai Arulanathan',{exact:true}).waitFor();
- await portal.getByLabel('Portal account for Sai Arulanathan',{exact:true}).selectOption('Sai');await portal.getByText('Link saved. Refresh the tutor’s Feedback page to use it.').waitFor();
+ assert.equal(await portal.getByLabel('Portal account for Sai Arulanathan',{exact:true}).inputValue(),'Sai','Unique tutor first name matches without manual linking');
+ await portal.getByRole('heading',{name:'Needs linking (2)',exact:true}).waitFor();
+ const overview=await portal.evaluate(async()=>fetch('/api/admin/feedback-rolls?date=2026-09-12').then(response=>response.json()));
+ assert.equal(overview.students.find(student=>student.name==='Balakrishnan Ramalingam').target,'m3');
+ assert.equal(overview.students.find(student=>student.name==='Balakrishnan Ramalingam').reason,'parent_name');
+ assert.equal(overview.students.find(student=>student.name==='Student Example 1').reason,'student_name');
+ assert.equal(overview.students[0].target,'');
+ const typo=overview.students.find(student=>student.name==='Canoncal Student');assert.equal(typo.target,'');assert.equal(typo.suggestions[0].id,'m2');
+ assert.equal(await portal.locator('.roll-matched').evaluate(element=>element.open),false);
+ await portal.screenshot({path:path.join(artifacts,'review-first-desktop.png'),fullPage:true});
+ await portal.setViewportSize({width:390,height:844});await portal.screenshot({path:path.join(artifacts,'review-first-phone.png'),fullPage:true});assert.ok(await portal.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  await portal.getByLabel('Portal member for Parent Booking (sample1) · 2026-09-12:100:100',{exact:true}).selectOption('m2');
- await portal.waitForFunction(()=>document.querySelector('select[aria-label="Portal member for Parent Booking (sample1) · 2026-09-12:100:100"]')?.value==='m2'&&!document.querySelector('select').disabled);
+ await portal.getByText('Link remembered for future collections. Refresh the tutor’s Feedback page to use it.',{exact:true}).waitFor();
+ await portal.getByRole('heading',{name:'Needs linking (1)',exact:true}).waitFor();
+ const suggestion=portal.getByLabel('Portal member for Canoncal Student (other1) · 2026-09-12:100:200',{exact:true});
+ assert.equal(await suggestion.inputValue(),'','Spelling suggestions are not preselected');
+ assert.equal(await suggestion.locator('optgroup[label="Review suggestions"] option[value="m2"]').count(),1);
+ await suggestion.selectOption('m2');await portal.getByRole('heading',{name:'Needs linking (0)',exact:true}).waitFor();
+ await portal.reload();await portal.getByText('All student bookings are linked.',{exact:true}).waitFor();
+ const remembered=await portal.evaluate(async()=>fetch('/api/admin/feedback-rolls?date=2026-09-12').then(response=>response.json()));
+ assert.ok(remembered.students.filter(student=>student.source==='sample1'||student.source==='other1').every(student=>student.target==='m2'&&student.reason==='remembered'));
  await portal.screenshot({path:path.join(artifacts,'admin-links-desktop.png'),fullPage:true});
  await portal.setViewportSize({width:390,height:844});await portal.screenshot({path:path.join(artifacts,'admin-links-phone.png'),fullPage:true});assert.ok(await portal.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  await identity('Sai','tutor');await portal.goto(PORTAL+'/feedback');await portal.getByRole('button',{name:'My schedule',exact:true}).waitFor();
@@ -97,7 +115,7 @@ const html=e=>`<${e.tagName.toLowerCase()} ${Object.entries(e.attrs).map(([k,v])
  await portal.getByRole('button',{name:'My schedule',exact:true}).click();await portal.screenshot({path:path.join(artifacts,'tutor-feedback-phone.png'),fullPage:true});
  const linked=await portal.evaluate(async()=>fetch('/api/feedback-schedule?date=2026-09-12').then(response=>response.json()));assert.equal(linked.sessions[0].students.find(student=>student.id==='m2').email,'second@example.invalid');
  assert.equal((await portal.evaluate(async()=>fetch('/api/admin/feedback-rolls?date=2026-09-12').then(response=>response.status))),403);
- console.log('PASS: installed extension -> signed real API -> fake Sheets -> explicit Sai/student links -> phone Feedback and correct canonical recipient');
+ console.log('PASS: installed extension -> real API -> automatic tutor/student/parent matches -> review-only spelling suggestions -> persistent manual links -> phone Feedback and canonical recipient');
  await identity('Demo Admin','admin');tutor='Other Tutor';await review.locator('#schedule-full-day').check();await review.locator('#refresh').click();await synced();
  await identity('Sai','tutor');await portal.reload();await portal.getByPlaceholder('Search name or email...').waitFor();assert.equal(await portal.locator('.feedback-student-switch').count(),0);
  console.log('PASS: substitution removes Sai’s expected students and hides his switch without changing payroll');
