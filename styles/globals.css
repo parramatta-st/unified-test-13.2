@@ -1857,8 +1857,9 @@ main.container {
   .feedback-page .feedback-student-switch .seg-btn,.feedback-page .feedback-type-switch .seg-btn{min-height:36px;padding:.35rem .6rem;font-size:.75rem;line-height:1.2}
   .feedback-page .feedback-heading+p{font-size:.8rem;line-height:1.4;margin:.55rem 0}
   .feedback-page .feedback-student-mode{margin-top:.65rem;padding:.6rem;border-radius:10px}
-  .feedback-page .feedback-schedule-toolbar{gap:.35rem;margin:.45rem 0 .6rem}
-  .feedback-page .feedback-schedule-toolbar label{min-width:0;flex:1;gap:.2rem;font-size:.75rem}
+  /* Native iPhone date controls can paint beyond a shrinking flex item. */
+  .feedback-page .feedback-schedule-toolbar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.35rem;margin:.45rem 0 .6rem}
+  .feedback-page .feedback-schedule-toolbar label{grid-column:1/-1;min-width:0;gap:.2rem;font-size:.75rem}
   .feedback-page .feedback-schedule-toolbar .input{height:38px;padding:.35rem;min-width:0;width:100%}
   .feedback-page .feedback-schedule-toolbar .btn{min-height:38px;padding:.35rem .55rem;font-size:.75rem!important}
   .feedback-page .feedback-refresh-detail{display:none}
@@ -1878,7 +1879,5 @@ main.container {
   .feedback-page .recent-chip{min-height:36px;padding:.35rem .6rem;font-size:.78rem}
 }
 @media(max-width:360px){
-  .feedback-page .feedback-schedule-toolbar label{flex-basis:100%}
-  .feedback-page .feedback-schedule-toolbar .btn{flex:1}
   .feedback-page .feedback-form .grid-2{grid-template-columns:minmax(0,1fr)}
 }
