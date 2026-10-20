@@ -1832,3 +1832,13 @@ main.container {
 .feedback-schedule-session{padding:.7rem 0;border-top:1px solid #3f3f46}.feedback-schedule-students{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.5rem}.feedback-schedule-students .btn{white-space:normal;text-align:left}
 .feedback-schedule-students .selected{border-color:#fb923c}.feedback-schedule-selected{font-size:.85rem;color:var(--muted);margin:.6rem 0}
 @media(max-width:760px){.feedback-student-mode{padding:.75rem}.feedback-schedule-toolbar .input{max-width:100%}.feedback-student-switch{display:flex}.feedback-student-switch button{flex:1}}
+.roll-link-card{display:grid;gap:.55rem;min-width:0;padding:1rem;border:1px solid rgba(255,255,255,.14);border-radius:12px}
+.roll-link-review{border-color:rgba(255,181,71,.45)}
+.roll-link-note{margin:0;font-size:.88rem;overflow-wrap:anywhere}
+.roll-link-scope{display:flex!important;grid-template-columns:auto 1fr;align-items:center;gap:.5rem!important}
+.roll-link-scope input{width:1rem;height:1rem;flex:none}
+.roll-matched>summary{cursor:pointer;font-weight:700;margin:1rem 0}
+.roll-matched .roll-link-grid>details{min-width:0}.roll-matched .roll-link-grid>details>summary{cursor:pointer;overflow-wrap:anywhere;margin-bottom:.5rem}
+.roll-link-card .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+.roll-link-card strong{overflow-wrap:anywhere}

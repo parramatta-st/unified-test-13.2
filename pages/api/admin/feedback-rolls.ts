@@ -35,18 +35,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const state = rollState(events, admin.campus, date);
     if (req.method === 'POST') {
       if (body.action !== 'link_identity') throw new RollsError(400, 'Unknown schedule action.');
+      if (body.kind !== 'tutor' && body.kind !== 'student') throw new RollsError(400, 'Invalid link type.');
+      const scope = body.scope === undefined ? 'remember' : body.scope;
+      if (scope !== 'remember' && scope !== 'class') throw new RollsError(400, 'Choose whether to remember the link or use this class only.');
       const source = body.kind === 'tutor' ? nameKey(sourceTutor(String(body.source || ''))) : body.source;
       if (body.kind === 'student' && typeof body.sessionId !== 'string') throw new RollsError(400, 'Choose the student’s class before linking.');
       const exists = state.sessions.some(session => body.kind === 'tutor' ? nameKey(sourceTutor(session.tutorNameRaw)) === source : session.hapanaSessionId === body.sessionId && session.students.some(student => student.id === source));
       if (!exists) throw new RollsError(400, 'This identity is not in the selected saved day.');
-      await saveRollLink(admin.campus, admin.tutor, body.kind, source, body.target, tutors, members.members, body.kind === 'student' ? body.sessionId : undefined);
+      await saveRollLink(admin.campus, admin.tutor, body.kind, source, body.target, tutors, members.members, body.kind === 'student' ? body.sessionId : undefined, scope);
       return res.json({ ok: true });
     }
     const linked = linkedRoster(state, admin.campus, tutors, members.members);
     const instructorNames = [...new Set(state.sessions.map(session => sourceTutor(session.tutorNameRaw)))];
-    const students = state.sessions.flatMap(session => session.students.map(student => ({ source: student.id, name: student.name, sessionId: session.hapanaSessionId, classLabel: `${minuteTime(session.startMinute)}–${minuteTime(session.endMinute)} · ${session.sessionTitle} · ${sourceTutor(session.tutorNameRaw)}`, target: linked.memberFor(student, session.hapanaSessionId)?.id || '' })));
+    const students = state.sessions.flatMap(session => session.students.map(student => {
+      const match = linked.studentMatch(student, session.hapanaSessionId);
+      return { source: student.id, name: student.name, sessionId: session.hapanaSessionId, classLabel: `${minuteTime(session.startMinute)}–${minuteTime(session.endMinute)} · ${session.sessionTitle} · ${sourceTutor(session.tutorNameRaw)}`, target: match.value?.id || '', reason: match.reason, suggestions: match.value ? [] : linked.suggestStudents(student.name) };
+    })).sort((a, b) => Number(!!a.target) - Number(!!b.target) || a.name.localeCompare(b.name) || a.classLabel.localeCompare(b.classLabel));
     return res.json({ ok: true, date, lastSync: state.latest?.savedAt || '', mode: state.commits.at(-1)?.capture.mode || '', sessions: state.sessions.length,
-      instructors: instructorNames.map(name => ({ source: name, target: linked.tutorFor(name) })),
+      instructors: instructorNames.map(name => { const match = linked.tutorMatch(name); return { source: name, target: match.value || '', reason: match.reason }; }).sort((a, b) => Number(!!a.target) - Number(!!b.target) || a.source.localeCompare(b.source)),
       students,
       tutors: tutors.map(tutor => tutor.tutorName), members: members.members.filter(member => member.active).map(member => ({ id: member.id, name: `${member.firstName} ${member.lastName}`, year: member.years, parentName: member.parentName })) });
   } catch (error) {

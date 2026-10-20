@@ -3,11 +3,13 @@ import { appendSheetRows, getSpreadsheet, googleSheetsCredentialsConfigured, rea
 import type { Member } from './members';
 import type { TutorConfig } from './tutorConfig';
 import { scheduleDate } from './feedbackSchedule';
+import { bookingLinkKey, createRollMatcher, rollNameKey, rollTutorName } from './feedbackRollMatching';
+export { bookingLinkKey } from './feedbackRollMatching';
 
 const SHEET = 'feedback_roll_events';
 const HEADERS = ['eventId', 'campus', 'date', 'captureId', 'type', 'issuedAt', 'savedAt', 'actor', 'payload', 'signature'];
-export const nameKey = (value: string) => value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
-export const sourceTutor = (value: string) => value.replace(/\s*\(\s*(?:sub|substitute)\s*\)$/i, '').trim();
+export const nameKey = rollNameKey;
+export const sourceTutor = rollTutorName;
 export type RollSession = { hapanaSessionId: string; sessionTitle: string; tutorNameRaw: string; startMinute: number; endMinute: number; students: { id: string; name: string }[] };
 export type RollCapture = { schemaVersion: 2; date: string; captureId: string; mode: 'replace_day' | 'observed_sessions'; sessions: RollSession[] };
 type Event = { eventId: string; campus: string; date: string; captureId: string; type: string; issuedAt: string; savedAt: string; actor: string; payload: string; signature: string };
@@ -101,8 +103,8 @@ export function rollState(events: Event[], campus: string, date: string) {
     for (const session of capture.sessions) sessions.set(session.hapanaSessionId, session);
   }
   const mappings = new Map<string, string>();
-  for (const row of scoped.filter(row => row.type === 'link').sort((a, b) => a.savedAt.localeCompare(b.savedAt) || a.eventId.localeCompare(b.eventId))) {
-    try { const link = JSON.parse(row.payload); mappings.set(link.kind + ':' + link.source, link.target); } catch {}
+  for (const row of scoped.filter(row => row.type === 'link').sort((a, b) => a.savedAt.localeCompare(b.savedAt))) {
+    try { const link = JSON.parse(row.payload), key = link.kind + ':' + link.source; if (link.kind === 'booking' && link.target === null) mappings.delete(key); else if (typeof link.target === 'string') mappings.set(key, link.target); } catch {}
   }
   return { sessions: [...sessions.values()], commits, mappings, latest: commits.at(-1)?.row || null };
 }
@@ -121,33 +123,24 @@ export async function importRolls(raw: unknown, ticket: unknown, campus: string,
   await appendSheetRows(SHEET, HEADERS, rows, rollSpreadsheetId());
   return { replayed: false, capture };
 }
-export function bookingLinkKey(sessionId: string, studentId: string) { return JSON.stringify([sessionId, studentId]); }
-export async function saveRollLink(campus: string, actor: string, kind: unknown, source: unknown, target: unknown, tutors: TutorConfig[], members: Member[], sessionId?: string) {
+export async function saveRollLink(campus: string, actor: string, kind: unknown, source: unknown, target: unknown, tutors: TutorConfig[], members: Member[], sessionId?: string, scope: 'class' | 'remember' = 'class') {
   if (kind !== 'tutor' && kind !== 'student') return fail('Invalid link type.');
   const key = text(source, 'source identity', 200), chosen = typeof target === 'string' ? target.trim() : fail('Invalid linked identity.');
   if (chosen && !(kind === 'tutor' ? tutors.some(t => t.active && t.campusKey === campus && t.tutorName === chosen) : members.some(m => m.active && m.id === chosen))) return fail('Choose an active portal account or member.');
-  // Parent-owned Hapana records can represent different children in different classes.
-  // New student links apply only to this dated class; old explicit global links remain readable.
-  const scoped = kind === 'student' && sessionId;
-  await appendSheetRows(SHEET, HEADERS, [event('link', campus, actor, '', '', Date.now(), { kind: scoped ? 'booking' : kind, source: scoped ? bookingLinkKey(sessionId, key) : key, target: chosen })], rollSpreadsheetId());
+  const scoped = kind === 'student' && sessionId && scope === 'class';
+  const rows = [event('link', campus, actor, '', '', Date.now(), { kind: scoped ? 'booking' : kind, source: scoped ? bookingLinkKey(sessionId, key) : key, target: chosen })];
+  // Remembering a record also replaces this class's older exception. Other explicit class exceptions remain.
+  if (kind === 'student' && sessionId && scope === 'remember') rows.push(event('link', campus, actor, '', '', Date.now(), { kind: 'booking', source: bookingLinkKey(sessionId, key), target: null }));
+  await appendSheetRows(SHEET, HEADERS, rows, rollSpreadsheetId());
 }
 export function linkedRoster(state: ReturnType<typeof rollState>, campus: string, tutors: TutorConfig[], members: Member[]) {
-  const activeTutors = tutors.filter(t => t.active && t.campusKey === campus), activeMembers = members.filter(m => m.active);
-  function tutorFor(raw: string) {
-    const key = nameKey(sourceTutor(raw)), linked = state.mappings.get('tutor:' + key);
-    const candidates = activeTutors.filter(t => linked !== undefined ? t.tutorName === linked : nameKey(t.tutorName) === key);
-    return candidates.length === 1 ? candidates[0].tutorName : '';
-  }
-  function memberFor(student: { id: string; name: string }, sessionId?: string) {
-    const booking = sessionId ? state.mappings.get('booking:' + bookingLinkKey(sessionId, student.id)) : undefined;
-    const linked = booking !== undefined ? booking : state.mappings.get('student:' + student.id);
-    const candidates = activeMembers.filter(m => linked !== undefined ? m.id === linked : nameKey(`${m.firstName} ${m.lastName}`) === nameKey(student.name));
-    return candidates.length === 1 ? candidates[0] : null;
-  }
+  const matcher = createRollMatcher(campus, tutors, members, state.mappings);
+  const tutorFor = (raw: string) => matcher.tutorMatch(raw).value || '';
+  const memberFor = (student: { id: string; name: string }, sessionId?: string) => matcher.studentMatch(student, sessionId).value;
   const rows = state.sessions.flatMap(session => session.students.map(student => {
     const member = memberFor(student, session.hapanaSessionId);
     return { campusKey: campus, tutorName: tutorFor(session.tutorNameRaw), specificDate: state.latest?.date, entryType: 'one_off', isMakeup: false, startTime: minuteTime(session.startMinute), endTime: minuteTime(session.endMinute), studentId: member?.id || '', studentName: student.name, active: true };
   }));
-  return { rows, tutorFor, memberFor };
+  return { rows, tutorFor, memberFor, ...matcher };
 }
 export function minuteTime(minute: number) { return `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`; }
