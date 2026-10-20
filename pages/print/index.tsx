@@ -410,6 +410,7 @@ export default function PrintPage() {
 
       <main className="container manual-print-page">
         <div className="card">
+          <h1 className="section-title">Print</h1>
           <div className="flex items-center justify-between">
             <div className="badge-success">{status}</div>
             {msg && <div className="text-sm text-muted" style={{ marginLeft: 12 }}>{msg}</div>}
