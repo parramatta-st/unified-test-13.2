@@ -93,7 +93,7 @@ export default function FeedbackStudentMode({ children, onSelect, selected }: { 
     <p className="text-muted">Choose a student, then prepare their feedback.</p>
     {showSchedule ? <section className="feedback-student-mode" aria-label="Choose feedback student">
       {selected && <p className="feedback-schedule-selected">Selected student: <strong>{selected}</strong></p>}
-      <div className="feedback-schedule-toolbar"><label>Date <input className="input" aria-label="Schedule date" type="date" value={date} onChange={event => { setDateData(null); setError(''); setDate(event.target.value); }} /></label><button type="button" className="btn" onClick={() => setDate(currentDay)}>Today</button><button type="button" className="btn" disabled={busy} onClick={() => setRefresh(value => value + 1)}>Refresh schedule</button></div>
+      <div className="feedback-schedule-toolbar"><label>Date <input className="input" aria-label="Schedule date" type="date" value={date} onChange={event => { setDateData(null); setError(''); setDate(event.target.value); }} /></label><button type="button" className="btn" onClick={() => setDate(currentDay)}>Today</button><button type="button" className="btn" aria-label="Refresh schedule" disabled={busy} onClick={() => setRefresh(value => value + 1)}>Refresh<span className="feedback-refresh-detail"> schedule</span></button></div>
       {busy && <p role="status">Loading your students…</p>}
       {dateError && <p role="status">{dateError}</p>}
       {!busy && !dateError && data && !data.configured && <p>Your schedule has not been connected yet. Choose All students to give feedback.</p>}

@@ -15,8 +15,16 @@ const fulfill=(route,json,status=200)=>route.fulfill({status,contentType:'applic
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function until(check){for(let i=0;i<100;i++){if(await check())return;await pause(50);}throw Error('Expected condition did not become true');}
 async function pick(page,name){const input=page.getByPlaceholder('Search name or email...');await input.fill(name);await page.locator('.suggest-item').filter({has:page.getByText(name,{exact:true})}).click();}
+async function feedbackInView(page,name){
+ await until(()=>page.evaluate(()=>{
+   const form=document.querySelector('.feedback-form'),header=document.querySelector('.header');
+   const top=form.getBoundingClientRect().top,bottom=header.getBoundingClientRect().bottom;
+   return document.activeElement===form&&top>=bottom-1&&top<innerHeight-150;
+ }));
+ assert.equal(await page.locator('.feedback-recipient strong').textContent(),name);
+}
 async function testViewport(browser,viewport){
- const mobile=viewport.width<760,ctx=await browser.newContext({viewport});
+ const mobile=viewport.width<760,ctx=await browser.newContext({viewport,reducedMotion:mobile?'reduce':'no-preference'});
  await ctx.addCookies([{name:'st_sess',value:token(),url:ORIGIN,httpOnly:true,sameSite:'Lax'}]);
  const page=await ctx.newPage(),errors=[];page.on('pageerror',e=>errors.push(String(e)));
  await routeApis(page);
@@ -25,7 +33,11 @@ async function testViewport(browser,viewport){
    if(scheduleState==='pending')await new Promise(resolve=>{releaseSchedule=resolve;});
    if(scheduleState==='unavailable')return fulfill(route,{ok:false,error:'Your schedule is unavailable.'},503);
    if(scheduleState==='empty'||scheduleState==='unconfigured')return fulfill(route,{ok:true,configured:scheduleState!=='unconfigured',sessions:[]});
-   return route.fallback();
+   // A long roster makes jumping past the student list a real interaction test.
+   const roster=Array.from({length:9},(_,index)=>({id:`roster-${index}`,memberMatched:true,
+     name:index===0?'QA Student':`Examplelongfirstname${index} Examplelongsurname`,firstName:index===0?'QA':`Examplelongfirstname${index}`,
+     lastName:index===0?'Student':'Examplelongsurname',email:`qa-${index}@example.invalid`,parentName:'QA Parent',year:'',gender:'',pronouns:''}));
+   return fulfill(route,{ok:true,configured:true,sessions:[0,1,2].map(index=>({key:`session-${index}`,startLabel:`${4+index}:00pm`,endLabel:`${5+index}:00pm`,students:roster}))});
  });
  const records=[],calls=[],held=[];let hold=false,failNext=false,historyFail=false;
  await page.route('**/api/contacts',route=>fulfill(route,{ok:true,students}));
@@ -55,8 +67,19 @@ async function testViewport(browser,viewport){
   const title=await page.getByRole('heading',{name:'Parent Feedback',exact:true}).boundingBox();
   const toggle=await page.getByRole('group',{name:'Student view'}).boundingBox();
   if(!mobile){assert.ok(Math.abs(title.y+title.height/2-toggle.y-toggle.height/2)<3,'Switch is level with heading');assert.ok(toggle.x>title.x+title.width,'Switch is to the right of heading');}
+  assert.equal(await page.evaluate(()=>scrollY),0,'Loading the page does not jump to the form');
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth)<=5,'Feedback fits the viewport');
+  if(mobile){
+    assert.ok(title.height<26,'Phone heading stays compact');
+    assert.ok(toggle.height<=44,'Phone mode buttons stay compact');
+    assert.ok(await page.locator('.feedback-schedule-students button').first().evaluate(el=>el.getBoundingClientRect().height)<=40,'Student buttons stay compact');
+    assert.ok(await page.locator('.feedback-form').evaluate(el=>el.getBoundingClientRect().top)>viewport.height,'Long roster puts the form below the fold');
+  }
   await page.screenshot({path:`qa-artifacts/feedback-heading-${viewport.width}.png`,fullPage:true});
   await page.locator('.feedback-schedule-students button').first().click();
+  await feedbackInView(page,'QA Student');
+  assert.ok(await page.evaluate(()=>scrollY)>0,'Selecting a scheduled student scrolls past the roster');
+  await page.screenshot({path:`qa-artifacts/feedback-selected-${viewport.width}.png`});
   await page.getByRole('button',{name:'Custom feedback',exact:true}).click();
   // The freeform editor is the only textarea when Custom feedback is selected.
   const editor=page.locator('textarea').first();await editor.fill('Keep this draft while changing the student search view.');
@@ -65,9 +88,23 @@ async function testViewport(browser,viewport){
   await page.getByPlaceholder('Search name or email...').click();
   await page.locator('.suggest-item').filter({has:page.getByText('Other Student',{exact:true})}).waitFor();
   await page.keyboard.press('Escape');
+  await page.evaluate(()=>window.scrollTo({top:0,behavior:'instant'}));
+  await page.getByPlaceholder('Search name or email...').fill('Other');
+  await pause(250);
+  assert.equal(await page.getByPlaceholder('Search name or email...').evaluate(el=>el===document.activeElement),true,'Typing keeps focus in the search field');
+  await page.getByPlaceholder('Search name or email...').fill('Other Student');
+  await page.getByPlaceholder('Search name or email...').press('Enter');
+  await feedbackInView(page,'Other Student');
+  assert.equal(await editor.inputValue(),'Keep this draft while changing the student search view.');
+  await page.locator('.recent-chip').filter({hasText:/^QA Student$/}).click();
+  await feedbackInView(page,'QA Student');
+  assert.equal(await editor.inputValue(),'Keep this draft while changing the student search view.');
+  await page.getByRole('button',{name:'Clear',exact:true}).click();
+  await until(()=>page.evaluate(()=>scrollY===0));
+  assert.equal(await page.locator('.feedback-recipient').count(),0,'Clear returns to choosing a student');
   await page.reload();await page.waitForFunction(()=>document.querySelector('.feedback-student-switch button[aria-pressed="true"]')?.textContent.includes('All students'));
   await page.getByRole('button',{name:'My schedule',exact:true}).click();
-  console.log('PASS',viewport.width,'schedule/all students, full list, draft preserved, remembered mode');
+  console.log('PASS',viewport.width,'compact roster; schedule, keyboard search and recent selections scroll to visible form; draft preserved; clear and remembered mode; reduced motion on phone');
 
   // Refresh can remove a booking without losing the selected recipient/draft.
   await page.locator('.feedback-schedule-students button').first().click();
@@ -162,6 +199,6 @@ async function testViewport(browser,viewport){
  fs.mkdirSync('qa-artifacts',{recursive:true});
  const app=spawn(process.execPath,['node_modules/next/dist/bin/next',process.env.QA_USE_BUILD === '1' ? 'start' : 'dev','-H','127.0.0.1','-p','3100'],{env:{...process.env,SESSION_SECRET:SECRET,TUTOR_PASSWORD:'qa-only-password',NEXT_PUBLIC_CAMPUSES_JSON:JSON.stringify([{id:'parramatta',name:'Epping',tutors:['QA Tutor']}]),NEXT_TELEMETRY_DISABLED:'1'},stdio:['ignore','pipe','pipe']});
  let logs='';app.stderr.on('data',chunk=>logs+=chunk);let browser;
- try{await waitServer();browser=await chromium.launch({headless:true,args:['--no-sandbox']});for(const viewport of [{width:1440,height:1000},{width:390,height:844}])await testViewport(browser,viewport);console.log('PRINT ACTIVITY BROWSER FLOWS PASSED');}
+ try{await waitServer();browser=await chromium.launch({headless:true,args:['--no-sandbox']});for(const viewport of [{width:1440,height:1000},{width:390,height:844},{width:320,height:740}])await testViewport(browser,viewport);console.log('PRINT ACTIVITY BROWSER FLOWS PASSED');}
  finally{if(browser)await browser.close();app.kill('SIGTERM');if(logs)console.log(logs.slice(-2500));}
 })().catch(error=>{console.error(error);process.exitCode=1;});
