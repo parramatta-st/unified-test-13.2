@@ -21,10 +21,10 @@ function groupBookings(bookings: Booking[]) {
   return [...groups.values()];
 }
 const explanations: Record<MatchReason, string> = {
-  remembered: 'Remembered link', class_override: 'This class only', student_name: 'Student name matched', parent_name: 'Parent name matched',
+  remembered: 'Remembered link', class_override: 'This class only', student_name: 'Student name matched', parent_name: 'Parent name matched', parent_first_name: 'Parent first name matched',
   tutor_name: 'Tutor name matched', tutor_first_name: 'First name matched', ambiguous_student: 'More than one student has this name — choose the correct student.',
   ambiguous_parent: 'This parent has multiple students — choose the child attending.', ambiguous_tutor: 'More than one tutor has this first name — choose the correct account.',
-  needs_linking: 'Needs linking', saved_unavailable: 'The saved student is no longer active. Review this link.',
+  needs_linking: 'Needs linking', saved_unavailable: 'The saved link is no longer active. Review this choice.',
 };
 
 export default function FeedbackScheduleSetup() {
@@ -78,7 +78,7 @@ export default function FeedbackScheduleSetup() {
   }
   return <><Header /><main className="container"><div className="card">
     <h2 className="section-title">Daily Rolls → Feedback</h2>
-    <p className="text-muted">Collect the day using Daily Rolls 0.6.1 or later. Tutor first names, student full names and unique parent names match automatically. Review only the bookings that need help.</p>
+    <p className="text-muted">Collect the day using Daily Rolls 0.6.1 or later. Tutor first names, student full names and unique parent names match automatically, including a parent’s first name when their surname is missing. Review only the bookings that need help.</p>
     <div className="feedback-schedule-toolbar"><label>Saved date<input className="input" type="date" aria-label="Saved date" value={date} disabled={busy} onChange={event => { const next = event.target.value; if (next !== date) { setData(null); setMessage(''); setDate(next); } }} /></label><button className="btn" disabled={busy} onClick={() => { setDate(today()); setMessage(''); }}>Today</button><button className="btn" disabled={busy} onClick={() => void load()}>{busy ? 'Loading…' : 'Refresh saved day'}</button></div>
     {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
     {data && !data.lastSync && <p>No student bookings have synced for this day. Collect this date in the updated Daily Rolls extension, then refresh here.</p>}

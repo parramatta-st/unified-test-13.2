@@ -4,7 +4,7 @@ import type { TutorConfig } from './tutorConfig';
 export const rollNameKey = (value: string) => value.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
 export const rollTutorName = (value: string) => value.replace(/\s*\(\s*(?:sub|substitute)\s*\)$/i, '').trim();
 export const bookingLinkKey = (sessionId: string, studentId: string) => JSON.stringify([sessionId, studentId]);
-export type MatchReason = 'remembered' | 'class_override' | 'student_name' | 'parent_name' | 'tutor_name' | 'tutor_first_name' | 'ambiguous_student' | 'ambiguous_parent' | 'ambiguous_tutor' | 'needs_linking' | 'saved_unavailable';
+export type MatchReason = 'remembered' | 'class_override' | 'student_name' | 'parent_name' | 'parent_first_name' | 'tutor_name' | 'tutor_first_name' | 'ambiguous_student' | 'ambiguous_parent' | 'ambiguous_tutor' | 'needs_linking' | 'saved_unavailable';
 export type StudentSuggestion = { id: string; via: 'student' | 'parent' };
 type Match<T> = { value: T | null; reason: MatchReason };
 
@@ -17,6 +17,8 @@ function indexBy<T>(values: T[], keyFor: (value: T) => string) {
   return index;
 }
 const fullName = (member: Member) => rollNameKey(`${member.firstName} ${member.lastName}`);
+const firstName = (name: string) => rollNameKey(name).split(' ')[0];
+const firstNameOnly = (name: string) => !!rollNameKey(name) && !rollNameKey(name).includes(' ');
 const looseName = (value: string) => rollNameKey(value).normalize('NFKD').replace(/\p{M}/gu, '').replace(/[^\p{L}\p{N}]/gu, '').slice(0, 200);
 
 // Bounded edit distance, including adjacent letter swaps. Used only for review suggestions.
@@ -44,7 +46,14 @@ export function createRollMatcher(campus: string, tutors: TutorConfig[], members
   const tutorFirstNames = indexBy(activeTutors, tutor => rollNameKey(tutor.tutorName).split(' ')[0]);
   const studentNames = indexBy(activeMembers, member => member.firstName.trim() && member.lastName.trim() ? fullName(member) : '');
   const parentNames = indexBy(activeMembers, member => rollNameKey(member.parentName));
+  const parentFirstNames = indexBy(activeMembers, member => firstName(member.parentName));
   const suggestionCache = new Map<string, StudentSuggestion[]>();
+  function shortenedParentCandidates(name: string) {
+    const candidates = parentFirstNames.get(firstName(name)) || [];
+    // Accept a missing surname on either side, never discard two conflicting saved surnames.
+    // Count all active children with this first name so a shorter record cannot hide a collision.
+    return candidates.some(member => firstNameOnly(name) || firstNameOnly(member.parentName)) ? candidates : [];
+  }
   function tutorMatch(raw: string): Match<string> {
     const key = rollNameKey(rollTutorName(raw)), saved = mappings.get('tutor:' + key);
     if (saved !== undefined) return { value: activeTutors.some(tutor => tutor.tutorName === saved) ? saved : null, reason: saved ? activeTutors.some(tutor => tutor.tutorName === saved) ? 'remembered' : 'saved_unavailable' : 'needs_linking' };
@@ -59,14 +68,16 @@ export function createRollMatcher(campus: string, tutors: TutorConfig[], members
     if (saved !== undefined) return { value: memberIds.get(saved) || null, reason: saved ? memberIds.has(saved) ? booking !== undefined ? 'class_override' : 'remembered' : 'saved_unavailable' : 'needs_linking' };
     const key = rollNameKey(student.name), exact = studentNames.get(key) || [];
     if (exact.length) return { value: exact.length === 1 ? exact[0] : null, reason: exact.length === 1 ? 'student_name' : 'ambiguous_student' };
-    const children = parentNames.get(key) || [];
-    return { value: children.length === 1 ? children[0] : null, reason: children.length === 1 ? 'parent_name' : children.length > 1 ? 'ambiguous_parent' : 'needs_linking' };
+    const children = (firstNameOnly(student.name) ? parentFirstNames.get(key) : parentNames.get(key)) || [];
+    if (children.length) return { value: children.length === 1 ? children[0] : null, reason: children.length === 1 ? firstNameOnly(student.name) ? 'parent_first_name' : 'parent_name' : 'ambiguous_parent' };
+    const shortened = shortenedParentCandidates(student.name);
+    return { value: shortened.length === 1 ? shortened[0] : null, reason: shortened.length === 1 ? 'parent_first_name' : shortened.length > 1 ? 'ambiguous_parent' : 'needs_linking' };
   }
   function suggestStudents(name: string): StudentSuggestion[] {
     const key = rollNameKey(name), cached = suggestionCache.get(key);
     if (cached) return cached;
     // An exact ambiguous identity takes precedence over approximate alternatives.
-    const exactStudents = studentNames.get(key), exactParents = parentNames.get(key);
+    const exactStudents = studentNames.get(key), exactParents = firstNameOnly(name) ? parentFirstNames.get(key) || [] : parentNames.get(key) || shortenedParentCandidates(name);
     if (exactStudents?.length || exactParents?.length) {
       const candidates = exactStudents?.length ? exactStudents : exactParents!;
       const suggestions = candidates.map(member => ({ id: member.id, via: exactStudents?.length ? 'student' as const : 'parent' as const }));
@@ -76,13 +87,17 @@ export function createRollMatcher(campus: string, tutors: TutorConfig[], members
     if (query.length >= 4) for (const member of activeMembers) {
       let best: { id: string; via: 'student' | 'parent'; score: number } | null = null;
       for (const via of ['student', 'parent'] as const) {
-        const candidate = looseName(via === 'student' ? `${member.firstName} ${member.lastName}` : member.parentName);
-        if (candidate.length < 4) continue;
-        const maximum = Math.min(3, Math.floor(Math.max(query.length, candidate.length) * .2));
-        const distance = spellingDistance(query, candidate, maximum);
-        if (distance > maximum) continue;
-        const score = 1 - distance / Math.max(query.length, candidate.length);
-        if (!best || score > best.score) best = { id: member.id, via, score };
+        const candidateName = via === 'student' ? `${member.firstName} ${member.lastName}` : member.parentName;
+        const pairs = [[query, looseName(candidateName)]];
+        if (via === 'parent' && (firstNameOnly(name) || firstNameOnly(candidateName))) pairs.push([looseName(firstName(name)), looseName(firstName(candidateName))]);
+        for (const [needle, candidate] of pairs) {
+          if (needle.length < 4 || candidate.length < 4) continue;
+          const maximum = Math.min(3, Math.floor(Math.max(needle.length, candidate.length) * .2));
+          const distance = spellingDistance(needle, candidate, maximum);
+          if (distance > maximum) continue;
+          const score = 1 - distance / Math.max(needle.length, candidate.length);
+          if (!best || score > best.score) best = { id: member.id, via, score };
+        }
       }
       if (best) ranked.push(best);
     }

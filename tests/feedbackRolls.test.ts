@@ -77,6 +77,22 @@ test('Sai/full-name aliases match by unique first name; explicit overrides and s
   } finally { fixture.restore(); }
 });
 
+test('a full Hapana parent name resolves via the portal parent-first-name field to the canonical student and recipient', async t => {
+  const fixture = setup(t);
+  try {
+    const child = { ...member, id: 's10', firstName: 'Vishnuchith', lastName: 'Balakrishnan', parentName: 'Balakrishnan' };
+    fixture.sheets.set('contacts', [Object.keys(child), Object.values(child)]);
+    const raw = capture('parent-first-name', 'Sai Arulanathan', 'Balakrishnan Ramalingam');
+    await importRolls(raw, collectionTicket('parramatta', 'Demo Admin', date, raw.captureId), 'parramatta', 'Demo Admin');
+    const overview = await request(adminHandler, 'Demo Admin', 'admin');
+    assert.equal(overview.body.students[0].target, 's10'); assert.equal(overview.body.students[0].reason, 'parent_first_name');
+    const feed = await request(feedbackHandler, 'Sai', 'tutor');
+    assert.equal(feed.body.sessions[0].students[0].name, 'Vishnuchith Balakrishnan');
+    assert.equal(feed.body.sessions[0].students[0].email, member.parentEmail);
+    assert.equal(fixture.sheets.get('feedback_roll_events')!.length, 3, 'Automatic linking needs no manual link event');
+  } finally { fixture.restore(); }
+});
+
 test('parent-owned Hapana records link different children per dated class without guessing a parent name', async t => {
   const fixture = setup(t);
   try {
