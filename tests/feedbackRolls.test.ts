@@ -154,17 +154,20 @@ test('manual links are remembered across classes and dates, replace the current 
 test('newer collections win, substitutions remove the old tutor, and partial collections retain unseen classes', async t => {
   const fixture = setup(t);
   try {
+    // Sequential fixture imports can share a millisecond on fast CI runners.
+    // This scenario tests strictly newer tickets, not the tie-break for simultaneous collections.
+    const startedAt = Date.now() - 10000;
     const old = capture('old'), newer = capture('new', 'Second Tutor');
-    const oldTicket = collectionTicket('parramatta', 'Demo Admin', date, old.captureId, Date.now() - 5000);
-    await importRolls(newer, collectionTicket('parramatta', 'Demo Admin', date, newer.captureId), 'parramatta', 'Demo Admin');
+    const oldTicket = collectionTicket('parramatta', 'Demo Admin', date, old.captureId, startedAt);
+    await importRolls(newer, collectionTicket('parramatta', 'Demo Admin', date, newer.captureId, startedAt + 1000), 'parramatta', 'Demo Admin');
     await assert.rejects(importRolls(old, oldTicket, 'parramatta', 'Demo Admin'), /newer collection/);
     assert.equal((await request(feedbackHandler, 'Demo Tutor', 'tutor')).body.sessions.length, 0);
     assert.equal((await request(feedbackHandler, 'Second Tutor', 'tutor')).body.sessions.length, 1);
     const visible = capture('visible'); visible.mode = 'observed_sessions'; visible.sessions[0].hapanaSessionId = date + ':101:1';
-    await importRolls(visible, collectionTicket('parramatta', 'Demo Admin', date, visible.captureId), 'parramatta', 'Demo Admin');
+    await importRolls(visible, collectionTicket('parramatta', 'Demo Admin', date, visible.captureId, startedAt + 2000), 'parramatta', 'Demo Admin');
     assert.equal(rollState(await readRollEvents(), 'parramatta', date).sessions.length, 2);
     const replacement = capture('replacement');
-    await importRolls(replacement, collectionTicket('parramatta', 'Demo Admin', date, replacement.captureId), 'parramatta', 'Demo Admin');
+    await importRolls(replacement, collectionTicket('parramatta', 'Demo Admin', date, replacement.captureId, startedAt + 3000), 'parramatta', 'Demo Admin');
     assert.equal(rollState(await readRollEvents(), 'parramatta', date).sessions.length, 1);
   } finally { fixture.restore(); }
 });

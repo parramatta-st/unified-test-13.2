@@ -65,6 +65,28 @@ export default function FeedbackPage() {
   const pendingTimeoutRef = useRef<number | null>(null);
   const pendingIntervalRef = useRef<number | null>(null);
   const pendingPayloadRef = useRef<any | null>(null);
+  const feedbackFormRef = useRef<HTMLElement | null>(null);
+  const selectionFrameRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (selectionFrameRef.current !== null) cancelAnimationFrame(selectionFrameRef.current);
+  }, []);
+
+  function showFeedbackForm() {
+    // Close the search keyboard, then wait for the selected student to render.
+    const active = document.activeElement;
+    if (active instanceof HTMLInputElement && active.closest('.feedback-page')) active.blur();
+    if (selectionFrameRef.current !== null) cancelAnimationFrame(selectionFrameRef.current);
+    selectionFrameRef.current = requestAnimationFrame(() => {
+      selectionFrameRef.current = null;
+      const form = feedbackFormRef.current;
+      if (!form) return;
+      form.focus({ preventScroll: true });
+      const headerBottom = Math.max(0, document.querySelector('.header')?.getBoundingClientRect().bottom || 0);
+      const top = Math.max(0, window.scrollY + form.getBoundingClientRect().top - headerBottom - 12);
+      window.scrollTo({ top, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    });
+  }
 
   useEffect(() => {
     try {
@@ -307,6 +329,7 @@ function handleCustomChange(v: string) {
     else if (raw.includes('he') || raw.includes('male')) setPronouns('he/him');
     else if (raw.includes('they')) setPronouns('they/them');
     else setPronouns('');
+    showFeedbackForm();
   }
 
   async function findDuplicateFeedback(payload: any) {
@@ -474,7 +497,7 @@ function handleCustomChange(v: string) {
   const sendLabel = isSending ? 'Sending…' : 'Send to Parent';
 
   return (
-    <div>
+    <div className="feedback-page">
       <Header />
       <main className="container">
         <div className="card">
@@ -498,6 +521,7 @@ function handleCustomChange(v: string) {
                   if (s) {
                     rememberRecentStudent(s);
                     setRecentRefreshKey(k => k + 1);
+                    showFeedbackForm();
                   }
                 }}
                 required
@@ -506,10 +530,13 @@ function handleCustomChange(v: string) {
             </div>
           </FeedbackStudentMode>
 
-          <div className="segmented mt-4">
+          <section ref={feedbackFormRef} className="feedback-form" aria-label="Prepare feedback" tabIndex={-1}>
+          {selectedStudent && <p className="feedback-recipient">Feedback for <strong>{selectedStudent.name}</strong></p>}
+          <div className="segmented feedback-type-switch mt-4" role="group" aria-label="Feedback type">
             <button
               type="button"
               className={`seg-btn ${!isCustom ? 'active' : ''}`}
+              aria-pressed={!isCustom}
               onClick={() => setFeedbackMode('curriculum')}
             >
               Curriculum feedback
@@ -517,6 +544,7 @@ function handleCustomChange(v: string) {
             <button
               type="button"
               className={`seg-btn ${isCustom ? 'active' : ''}`}
+              aria-pressed={isCustom}
               onClick={() => setFeedbackMode('custom')}
             >
               Custom feedback
@@ -744,6 +772,7 @@ function handleCustomChange(v: string) {
               {error}
             </div>
           )}
+          </section>
         </div>
       </main>
 
