@@ -4,7 +4,9 @@ import { loadMembers } from '../../lib/members';
 import { loadRowsPrivateFirst } from '../../lib/googleSheets';
 import { feedbackScheduleSessions, scheduleDate } from '../../lib/feedbackSchedule';
 import { linkedRoster, readRollEvents, rollCampusEnabled, rollState } from '../../lib/feedbackRolls';
-import { getActiveTutors } from '../../lib/tutorConfig';
+import { loadFeedbackLogRows } from '../../lib/logs';
+import { hasSentFeedback, sentFeedbackForDate } from '../../lib/feedbackSentStatus';
+import { defaultCampusKey, getActiveTutors } from '../../lib/tutorConfig';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.setHeader('Cache-Control', 'no-store');
@@ -13,6 +15,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method !== 'GET') { res.setHeader('Allow', 'GET'); return res.status(405).end(); }
   const date = scheduleDate(req.query.date);
   if (!date) return res.status(400).json({ ok: false, error: 'Choose a valid date.' });
+  async function withSentStatus(sessions: ReturnType<typeof feedbackScheduleSessions>) {
+    // History is optional: a log outage must never prevent choosing students.
+    const history = await loadFeedbackLogRows().catch(() => ({ rows: [] }));
+    const sent = sentFeedbackForDate(history.rows || [], auth.campus, date, defaultCampusKey());
+    return sessions.map(session => ({ ...session, students: session.students.map(student => ({
+      ...student, feedbackSent: hasSentFeedback(student, date, sent),
+    })) }));
+  }
   try {
     if (rollCampusEnabled(auth.campus)) {
       const state = rollState(await readRollEvents(), auth.campus, date);
@@ -20,7 +30,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const [members, tutors] = await Promise.all([loadMembers(), getActiveTutors(auth.campus)]);
         const roster = linkedRoster(state, auth.campus, tutors, members.members);
         return res.status(200).json({ ok: true, configured: true, source: 'daily_rolls', date, lastSync: state.latest.savedAt,
-          sessions: feedbackScheduleSessions(roster.rows, members.members, auth.campus, auth.tutor, date) });
+          sessions: await withSentStatus(feedbackScheduleSessions(roster.rows, members.members, auth.campus, auth.tutor, date)) });
       }
     }
     const [schedule, members] = await Promise.all([
@@ -29,7 +39,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     ]);
     if (schedule.warning && !schedule.rows?.length) return res.status(503).json({ ok: false, error: 'Your schedule is unavailable. Try again or use All students.' });
     return res.status(200).json({ ok: true, configured: schedule.configured, date, tutorName: auth.tutor,
-      sessions: feedbackScheduleSessions(schedule.rows || [], members.members, auth.campus, auth.tutor, date) });
+      sessions: await withSentStatus(feedbackScheduleSessions(schedule.rows || [], members.members, auth.campus, auth.tutor, date)) });
   } catch {
     return res.status(503).json({ ok: false, error: 'Your schedule could not be loaded. Try again or use All students.' });
   }

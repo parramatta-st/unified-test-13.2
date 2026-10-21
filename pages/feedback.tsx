@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { feedbackSentDate, type SentFeedback } from '../lib/feedbackSentStatus';
 import Header from '../components/Header';
 import FeedbackStudentMode from '../components/FeedbackStudentMode';
 import StudentPicker, { type StudentPickerValue } from '../components/StudentPicker';
@@ -59,6 +60,7 @@ export default function FeedbackPage() {
   const [tutorName, setTutorName] = useState('');
   const [lastFeedback, setLastFeedback] = useState<LastFeedback | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [sentFeedback, setSentFeedback] = useState<SentFeedback[]>([]);
 
   const [hasPendingSend, setHasPendingSend] = useState(false);
   const [pendingSeconds, setPendingSeconds] = useState(0);
@@ -381,6 +383,13 @@ function handleCustomChange(v: string) {
       if (!res.ok || !j?.ok) {
         alert(j?.error || 'Failed to send feedback.');
       } else {
+        // Use the captured send payload: the tutor can choose another student during Undo.
+        setSentFeedback(previous => [...previous, {
+          studentId: payload.meta?.studentId || '',
+          studentName: payload.meta?.studentName || payload.toName,
+          parentEmail: payload.meta?.parentEmail || '',
+          date: feedbackSentDate(new Date().toISOString()),
+        }]);
         const key = makeFeedbackKey();
         setLastFeedback({
           key,
@@ -501,7 +510,7 @@ function handleCustomChange(v: string) {
       <Header />
       <main className="container">
         <div className="card">
-          <FeedbackStudentMode selected={student} onSelect={picked => { applyRecentStudent(picked); rememberRecentStudent(picked); setRecentRefreshKey(key => key + 1); }}>
+          <FeedbackStudentMode sentFeedback={sentFeedback} selected={student} onSelect={picked => { applyRecentStudent(picked); rememberRecentStudent(picked); setRecentRefreshKey(key => key + 1); }}>
             <div className="mt-4">
               <label className="label">Student</label>
               <StudentPicker
