@@ -39,7 +39,10 @@ jobs:
         env:
           NODE_PATH: ${{ runner.temp }}/print-browser/node_modules
           QA_USE_BUILD: '1'
-        run: node scripts/qa_print_activity_browser.cjs
+        run: |
+          node scripts/qa_print_activity_browser.cjs
+          node scripts/qa_feedback_sent_browser.cjs
+          node scripts/qa_print_motion_browser.cjs
       - name: Installed Daily Rolls to real portal API and tutor Feedback
         env:
           NODE_PATH: ${{ runner.temp }}/print-browser/node_modules

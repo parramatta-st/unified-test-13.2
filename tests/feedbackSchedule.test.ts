@@ -31,7 +31,11 @@ test('schedule API authenticates, ignores supplied tutor/campus, rejects invalid
   const token=await createSessionToken({tutor:'Demo Tutor',campus:'test-campus',role:'tutor'});
   const req={method:'GET',query:{date:'2026-10-20',tutor:'Second Tutor',campus:'other'},headers:{cookie:'st_sess='+token}};
   const invalid=res();await handler({...req,query:{date:'2026-02-31'}} as any,invalid as any);assert.equal(invalid.code,400);
-  const actual=res();await handler(req as any,actual as any);assert.equal(actual.code,200);assert.equal(actual.body.sessions[0].students[0].name,'Demo Student');
+  fixture.sheets.set('sentmsgs new',[
+   ['timestamp','campusKey','studentId','studentName','sendStatus'],
+   ['2026-10-20T05:00:00Z','test-campus','s1','Demo Student','sent'],
+  ]);
+  const actual=res();await handler(req as any,actual as any);assert.equal(actual.code,200);assert.equal(actual.body.sessions[0].students[0].name,'Demo Student');assert.equal(actual.body.sessions[0].students[0].feedbackSent,true);
   assert.ok(!JSON.stringify(actual.body).includes('Private Student'));
   const posts=(globalThis.fetch as any).mock.calls.filter((call:any)=>call.arguments[1]?.method==='POST' && !String(call.arguments[0]).includes('oauth2'));assert.equal(posts.length,0);
  }finally{fixture.restore();}

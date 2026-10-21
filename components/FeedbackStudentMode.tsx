@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { hasSentFeedback, type SentFeedback } from '../lib/feedbackSentStatus';
 import type { StudentPickerValue } from './StudentPicker';
 import type { feedbackScheduleSessions } from '../lib/feedbackSchedule';
 
@@ -15,7 +16,7 @@ function today() {
   const parts = new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Sydney', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
   return ['year', 'month', 'day'].map(type => parts.find(part => part.type === type)?.value).join('-');
 }
-export default function FeedbackStudentMode({ children, onSelect, selected }: { children: ReactNode; onSelect: (student: StudentPickerValue) => void; selected: string }) {
+export default function FeedbackStudentMode({ children, onSelect, selected, sentFeedback = [] }: { sentFeedback?: SentFeedback[]; children: ReactNode; onSelect: (student: StudentPickerValue) => void; selected: string }) {
   const [mode, setMode] = useState<'schedule' | 'all'>('schedule');
   const [ready, setReady] = useState(false);
   const [date, setDate] = useState(today);
@@ -98,9 +99,11 @@ export default function FeedbackStudentMode({ children, onSelect, selected }: { 
       {dateError && <p role="status">{dateError}</p>}
       {!busy && !dateError && data && !data.configured && <p>Your schedule has not been connected yet. Choose All students to give feedback.</p>}
       {!busy && !dateError && data?.configured && !data.sessions?.length && <p>No students are scheduled for this day. You can use All students.</p>}
+      <p className="feedback-sent-legend">Blue outline = feedback sent for this day. You can send more feedback.</p>
       {(data?.sessions || []).map(session => <div className="feedback-schedule-session" key={session.key}><strong>{session.startLabel}–{session.endLabel}</strong><div className="feedback-schedule-students">{session.students.map(student => {
         const usable = student.memberMatched && student.email && student.lastName;
-        return <button type="button" key={student.id || student.name} className={`btn ${selected === student.name ? 'selected' : ''}`} disabled={!usable} onClick={() => onSelect(student)} title={usable ? student.name : 'This booking needs a linked student with surname and parent email.'}>{student.name}{student.isMakeup ? ' · Makeup' : ''}{!usable ? ' · Needs student setup' : ''}</button>;
+        const sent = student.feedbackSent || hasSentFeedback(student, date, sentFeedback);
+        return <button type="button" key={student.id || student.name} className={`btn ${selected === student.name ? 'selected' : ''} ${sent ? 'feedback-sent' : ''}`} aria-pressed={selected === student.name} aria-label={`${student.name}${sent ? ' · Feedback sent' : ''}`} disabled={!usable} onClick={() => onSelect(student)} title={usable ? `${student.name}${sent ? ' · Feedback sent for this day. Select to send more.' : ''}` : 'This booking needs a linked student with surname and parent email.'}>{student.name}{student.isMakeup ? ' · Makeup' : ''}{!usable ? ' · Needs student setup' : ''}</button>;
       })}</div></div>)}
     </section> : children}
   </>;
