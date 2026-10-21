@@ -26,6 +26,7 @@ await test('Primary rooms prioritise larger same-time classes as Room 2 >= Room 
 await test('Shared overlapping rooms never block printing',()=>{const shared=classes.map(s=>({...s,room:'1'}));assert.equal(model.validate(shared,[],false),'');assert.equal(model.groups(shared,'rooms')[0].sessions.length,6);});
 await test('Unassigned, incomplete or running days cannot print',()=>{assert.match(model.validate(classes,[],false),/Choose a room/);assert.match(model.validate([],[],false),/No included/);assert.match(model.validate([],[{}],false),/errors/);assert.match(model.validate([],[],true),/still running/);});
 await test('Boundary-adjacent classes are not overlapping',()=>{assert.equal(model.overlap({start:960,end:1020},{start:1020,end:1080}),false);assert.equal(model.overlap({start:960,end:1021},{start:1020,end:1080}),true);});
+for(const [name,fn] of require('./room-allocation.cjs'))await test(name,fn);
 await test('Tutors and rooms group independently',()=>{const list=classes.map(s=>({...s,room:'2'}));assert.equal(model.groups(list,'rooms').length,1);assert.equal(model.groups(list,'tutors').length,6);});
 await test('Manifest uses only narrow host and storage permissions',()=>{const m=JSON.parse(fs.readFileSync(path.join(__dirname,'../manifest.json')));assert.equal(m.manifest_version,3);assert.deepEqual(m.permissions,['storage']);assert.deepEqual(m.host_permissions,['https://core.hapana.com/*','https://unified-site.successtutoringparramatta.com/*','https://unified-test-13-2.vercel.app/*']);});
 await test('No network calls in collection/printing, safe HTML construction and isolated durable storage',()=>{for(const name of ['reader.js','model.js','content.js','background.js','review.js','schedule-model.js','schedule-ui.js','print-fit.js','launcher.js']){const source=fs.readFileSync(path.join(__dirname,'..',name),'utf8');assert.ok(!/\bfetch\s*\(|XMLHttpRequest|innerHTML\s*=|insertAdjacentHTML|document\.cookie|chrome\.cookies|localStorage|storage\.sync/.test(source),name);if(name!=='background.js')assert.ok(!/storage\.local/.test(source),name);new vm.Script(source,{filename:name});}});
@@ -87,6 +88,7 @@ await test('Substitute suffix matching tolerates spacing and case but preserves 
   assert.equal(model.groups(tutors,'tutors').length,3);
 });
 await test('Regular and substitute tutor entries share one page through preview and print rebuild',()=>require('./ui-unit.cjs')({substitute:true}));
+await test('Combined classes move together through dropdown, drag/drop and room print preview',()=>require('./ui-unit.cjs')({combined:true}));
 for(const [name,fn] of require('./launcher-unit.cjs'))await test(name,fn);
 console.log(`\n${passed} tests passed.`);
 })().catch(error=>{console.error(error);process.exitCode=1;});
