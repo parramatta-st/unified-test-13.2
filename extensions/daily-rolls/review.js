@@ -90,7 +90,7 @@
   function setRoom(id,room) {
     if(room!==''&&!model.rooms.includes(room))return;
     const session=sessions.find(s=>s.id===id); if(!session)return;
-    session.room=room; render();
+    sessions=model.assignRoom(sessions,id,room); render();
     // Restore keyboard focus after re-rendering the board.
     const card=[...document.querySelectorAll('.class-card')].find(el=>el.dataset.id===id);
     card?.querySelector('select')?.focus({preventScroll:true});
@@ -101,7 +101,7 @@
     $('suggest').disabled=collecting||!sessions.length; $('clear').disabled=collecting||!sessions.length;
     renderStats(); renderBoard(); renderErrors();
     const reason=model.validate(sessions,errors,collecting);
-    $('print-reason').textContent=reason||'Ready. Shared rooms are allowed; each class remains a separate labelled section.';
+    $('print-reason').textContent=reason||'Ready. Overlapping classes with the same tutor move together. Each class keeps its own labelled section.';
     for(const id of ['preview-rooms','preview-tutors','print-all']) $(id).disabled=!!reason;
     if(day) {
       $('date-heading').textContent=model.fullDate(day.date);
@@ -184,8 +184,7 @@
     } finally {
       try {await background('CLOSE_COLLECTOR');}catch{}
       collectorId=null;collecting=false;collectedTime=new Date().toISOString();
-      if(fresh)sessions=model.suggest(sessions);
-      else {const suggestions=model.suggest(sessions);sessions=sessions.map(s=>s.room?s:{...s,room:suggestions.find(p=>p.id===s.id).room});}
+      sessions=model.suggest(sessions,{preserve:!fresh});
       $('progress').hidden=true;render();
       if(errors.length)status('Some classes need another look','Verified classes are shown below. Retry failed classes before printing.','error');
       else status('The day is ready for your room choices','Names and booking counts match for every included class. Review the rooms before printing.');

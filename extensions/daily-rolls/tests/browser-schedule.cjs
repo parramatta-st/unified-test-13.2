@@ -5,7 +5,7 @@ const extension=path.resolve(__dirname,'..'),profile=fs.mkdtempSync(path.join(os
 const artifacts=process.env.STP_TEST_ARTIFACTS||path.join(os.tmpdir(),'stp-rolls-artifacts');fs.mkdirSync(artifacts,{recursive:true});
 const escape=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 const html=e=>`<${e.tagName.toLowerCase()} ${Object.entries(e.attrs).map(([k,v])=>`${k}="${escape(v)}"`).join(' ')}>${escape(e.text)}${e.children.map(html).join('')}</${e.tagName.toLowerCase()}>`;
-let tutor='Kevin',visible=['100','200'],signInWall=false,context,passed=0,portalImports=[];
+let tutor='Kevin',visible=['100','200'],combined=false,signInWall=false,context,passed=0,portalImports=[];
 async function test(name,fn){await fn();passed++;console.log('PASS',name);}
 (async()=>{
  context=await chromium.launchPersistentContext(profile,{headless:true,executablePath:chromium.executablePath(),args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`,'--no-sandbox'],viewport:{width:1440,height:1000},acceptDownloads:true});
@@ -24,7 +24,7 @@ async function test(name,fn){await fn();passed++;console.log('PASS',name);}
   const url=new URL(route.request().url()),eid=url.searchParams.get('eid')||'100';
   if(signInWall&&url.searchParams.has('eid'))return route.fulfill({status:302,headers:{location:'https://core.hapana.com/login'}});
   if(url.pathname==='/login')return route.fulfill({contentType:'text/html',body:'<input type="password"><p>Sign in</p>'});
-  const f=fixture({eid,tutor:eid==='100'?tutor:'Ammay'}),list=f.doc.querySelector('#getdaymyEvents');
+  const f=fixture({eid,tutor:eid==='100'?tutor:combined?`${tutor} (sub)`:'Ammay'}),list=f.doc.querySelector('#getdaymyEvents');
   list.children=visible.map(id=>new El('li','',{},[new El('a','10:00 AM K-6 English Study Hub(2)',{href:fixture({eid:id}).href})]));
   return route.fulfill({contentType:'text/html',body:'<!doctype html><html><head><title>Fictional Hapana test</title></head>'+html(f.doc)+'</html>'});
  });
@@ -72,6 +72,28 @@ async function test(name,fn){await fn();passed++;console.log('PASS',name);}
  });
  await test('Room and tutor previews still render all collected students after schedule capture',async()=>{
   await review.locator('#preview-tutors').click();assert.equal(await review.locator('.tutor-page').count(),1);assert.equal(await review.locator('.name-cell').count(),2);await review.locator('#back').click();await review.locator('#preview-rooms').click();assert.equal(await review.locator('.print-class').count(),1);assert.equal(await review.locator('.name-cell').count(),2);
+ });
+ await test('Same-tutor classes share a room and move together through room selection and drag/drop',async()=>{
+  await review.locator('#back').click();visible=['100','200'];tutor='Combined Tutor';combined=true;
+  await source.reload();await review.locator('#refresh').click();await saved();
+  const choices=review.locator('.class-card select');
+  assert.equal(await choices.count(),2);
+  const initial=await choices.evaluateAll(nodes=>nodes.map(node=>node.value));assert.ok(initial[0]&&initial[0]===initial[1]);
+  await choices.first().selectOption('4');assert.deepEqual(await choices.evaluateAll(nodes=>nodes.map(node=>node.value)),['4','4']);
+  await review.locator('.class-card').first().dragTo(review.locator('.room-column[data-room="3"]'));
+  assert.deepEqual(await choices.evaluateAll(nodes=>nodes.map(node=>node.value)),['3','3']);
+  await review.screenshot({path:path.join(artifacts,'combined-tutor-board.png'),fullPage:true});
+ });
+ await test('Combined room and tutor rolls retain both class sections and all bookings',async()=>{
+  await review.locator('#preview-rooms').click();
+  assert.equal(await review.locator('#print-pages > .print-page').count(),1);
+  assert.equal(await review.locator('.print-class').count(),2);assert.equal(await review.locator('.name-cell').count(),4);
+  assert.match(await review.locator('#print-pages').innerText(),/Room 3/);
+  await review.screenshot({path:path.join(artifacts,'combined-room-roll.png'),fullPage:true});
+  await review.locator('#back').click();await review.locator('#preview-tutors').click();
+  assert.equal(await review.locator('.tutor-page').count(),1);assert.equal(await review.locator('.name-cell').count(),4);
+  await review.evaluate(()=>window.dispatchEvent(new Event('beforeprint')));
+  assert.equal(await review.locator('.print-class').count(),2);assert.equal(await review.locator('.name-cell').count(),4);
  });
  assert.deepEqual(errors,[],'Browser JavaScript errors');
  console.log(`\n${passed} browser scenarios passed. Screenshots: ${artifacts}`);

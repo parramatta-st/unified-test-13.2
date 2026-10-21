@@ -30,7 +30,7 @@ class Node {
   get clientWidth(){return 704;}
   getBoundingClientRect(){return {width:700,height:this.scrollHeight};}
 }
-function runUIUnit({substitute=false}={}){
+function runUIUnit({substitute=false,combined=false}={}){
   const root=new Node('body'),ids={};
   const html=fs.readFileSync(path.join(__dirname,'../review.html'),'utf8');
   for(const match of html.matchAll(/<([a-z-]+)[^>]*\bid="([^"]+)"[^>]*>/g)){ids[match[2]]=new Node(match[1]);ids[match[2]].id=match[2];root.append(ids[match[2]]);}
@@ -41,6 +41,7 @@ function runUIUnit({substitute=false}={}){
   const createModel=()=>{
     const model=require('../model.js')();
     if(substitute){const suggest=model.suggest;model.suggest=sessions=>suggest(sessions.map(s=>({...s,tutor:s.id==='demo-0'?'Aryan Gupta':s.id==='demo-3'?'Aryan Gupta (sub)':s.tutor})));}
+    if(combined){const suggest=model.suggest;model.suggest=sessions=>suggest(sessions.map(s=>({...s,tutor:s.id==='demo-0'?'Combined Tutor':s.id==='demo-1'?'Combined Tutor (sub)':s.tutor})));}
     return model;
   };
   const sandbox={document:doc,location:{search:'?demo=1'},URLSearchParams,Intl,Date,console,confirm:()=>true,setTimeout,createRollModel:createModel,createScheduleModel:require('../schedule-model.js'),createScheduleUI:()=>({load(){},save(){},incomplete(){}}),createHapanaReader:require('../reader.js'),createPrintFitter:require('../print-fit.js').createPrintFitter,window:{addEventListener:(type,fn)=>events[type]=fn,scrollTo(){},print(){}}};
@@ -50,6 +51,20 @@ function runUIUnit({substitute=false}={}){
   assert.equal(ids['print-all'].disabled,true,'Unknown class initially needs a room');
   const findCard=id=>ids.board.querySelectorAll('.class-card').find(c=>c.dataset.id===id);
   const choose=(id,room)=>{const s=findCard(id).querySelector('select');s.value=room;s.fire('change');};
+  if(combined){
+    assert.equal(findCard('demo-0').querySelector('select').value,'1');
+    assert.equal(findCard('demo-1').querySelector('select').value,'1');
+    choose('demo-1','4');assert.equal(findCard('demo-0').querySelector('select').value,'4');
+    ids.board.children.find(c=>c.dataset.room==='2').fire('drop',{preventDefault(){},dataTransfer:{getData:()=> 'demo-0'}});
+    assert.equal(findCard('demo-0').querySelector('select').value,'2');assert.equal(findCard('demo-1').querySelector('select').value,'2');
+    choose('demo-6','3');ids['preview-rooms'].fire('click');
+    assert.equal(ids['print-pages'].querySelectorAll('.print-class').length,7);
+    assert.equal(ids['print-pages'].querySelectorAll('.name-cell').length,32);
+    const room2=ids['print-pages'].children.filter(p=>p.querySelector('h1').textContent==='Room 2');
+    assert.ok(room2.some(p=>p.textContent.includes('Combined Tutor')&&p.querySelectorAll('.print-class').length>=2));
+    events.beforeprint();assert.equal(ids['print-pages'].querySelectorAll('.name-cell').length,32);
+    return;
+  }
   choose('demo-6','2');
   assert.equal(ids['print-all'].disabled,false);
   choose('demo-1','1');
