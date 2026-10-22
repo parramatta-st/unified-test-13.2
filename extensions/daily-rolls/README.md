@@ -1,6 +1,12 @@
-# Daily Rolls 0.6.2 — shared rooms for combined tutor classes
+# Daily Rolls 0.6.3 — recover the portal connection
 
 This release connects verified Hapana student bookings to `parramatta-st/unified-test-13.2`. Install the matching portal change before collecting. Open START-HERE.html for the numbered setup guide.
+
+## Portal reconnection
+
+Daily Rolls now reconnects its bridge in an already-open portal tab after an extension reload, without refreshing the page or losing a draft. Both the custom portal address and the supported original Vercel alias are checked. If the first tab is unreachable, another portal tab can be used. The scripting permission is used only to restore the packaged bridge on the explicitly allowed portal hosts. Server rejections do not trigger repeated writes.
+
+If the initial portal connection failed, or a collection expired, **Reconnect and recollect** starts a fresh verified collection after admin sign-in. Temporary upload failures still use **Retry student sync** on the same capture, preserving duplicate and stale-collection protection. The Student bookings panel remains the confirmation for Feedback; printing or local tutor backup success alone does not mean bookings synced.
 
 ## Combined classes
 
@@ -9,7 +15,7 @@ Overlapping classes taught by the same tutor now share one room. Room suggestion
 ## Update and use
 
 1. Unzip the download. Copy **all files inside hapana-rolls** into the permanent folder used by the existing Chrome extension. Replace matching files and include the new scripts. Keep the existing extension installation so tutor-only backups survive.
-2. Open `chrome://extensions`, click Reload on Daily Rolls and confirm version **0.6.2**. Close old review tabs and refresh both Hapana and the portal.
+2. Open `chrome://extensions`, click Reload on Daily Rolls and confirm version **0.6.3**. Close old review tabs and refresh both Hapana and the portal.
 3. Sign in **as an admin** at https://unified-site.successtutoringparramatta.com/admin/feedback-schedule in the same Chrome profile.
 4. In Hapana, select Schedule → Day and the required date. Clear filters. To replace the entire included day, tick **All classes for this day are visible** before collecting; otherwise unseen classes are retained.
 5. Collect the day and wait for **Student bookings synced to Feedback** in the new Student bookings panel. Local tutor backup success is a separate confirmation.

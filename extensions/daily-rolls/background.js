@@ -6,16 +6,35 @@ const SCHEDULE_PREFIX = 'stp-schedule-v1:parramatta:';
 // All read/modify/write operations run in the sole service worker, in order.
 let scheduleQueue = Promise.resolve();
 const PORTAL_ORIGIN = 'https://unified-site.successtutoringparramatta.com';
+const PORTAL_ORIGINS = [PORTAL_ORIGIN, 'https://unified-test-13-2.vercel.app'];
 async function portalRequest(body) {
-  const tabs=await chrome.tabs.query({url:PORTAL_ORIGIN+'/*'});
-  const tab=tabs[0]||await chrome.tabs.create({url:PORTAL_ORIGIN+'/admin/feedback-schedule',active:false});
+  const tabs=await chrome.tabs.query({url:PORTAL_ORIGINS.map(origin=>origin+'/*')});
+  tabs.sort((a,b)=>PORTAL_ORIGINS.indexOf(new URL(a.url).origin)-PORTAL_ORIGINS.indexOf(new URL(b.url).origin)||Number(!!b.active)-Number(!!a.active));
+  if(!tabs.length)tabs.push(await chrome.tabs.create({url:PORTAL_ORIGIN+'/admin/feedback-schedule',active:false}));
   let last='Open the portal and sign in as an admin.';
-  for(let attempt=0;attempt<20;attempt++) {
-    try {
-      const result=await chrome.tabs.sendMessage(tab.id,{namespace:'stp-rolls',type:'PORTAL_SCHEDULE_REQUEST',body});
+  const injected=new Set();
+  for(let attempt=0;attempt<10;attempt++) {
+    let authError;
+    for(const tab of tabs)try {
+      const request={namespace:'stp-rolls',type:'PORTAL_SCHEDULE_REQUEST',body};
+      let result;
+      try {result=await chrome.tabs.sendMessage(tab.id,request);}
+      catch(error) {
+        // Reloading an unpacked extension leaves existing portal tabs without
+        // its message listener. Reconnect without refreshing a tutor's draft.
+        if(injected.has(tab.id))throw error;
+        injected.add(tab.id);
+        await chrome.scripting.executeScript({target:{tabId:tab.id},files:['portal-bridge.js']});
+        result=await chrome.tabs.sendMessage(tab.id,request);
+      }
       if(result?.ok)return result;
-      throw Object.assign(new Error(result?.error||'The portal did not confirm the schedule request.'),{portalResponse:true});
+      const rejection=Object.assign(new Error(result?.error||'The portal did not confirm the schedule request.'),{portalResponse:true,recollect:!!result?.recollect});
+      // The two allowed origins have separate cookies. A signed-out alias
+      // must not prevent a signed-in production tab from answering.
+      if([401,403].includes(result?.status)){authError=authError||rejection;continue;}
+      throw rejection;
     }catch(error){if(error.portalResponse)throw error;last=error.message;}
+    if(authError)throw authError;
     await new Promise(resolve=>setTimeout(resolve,500));
   }
   throw new Error('Could not reach the signed-in portal. Refresh its tab after updating the extension. '+last);
@@ -86,7 +105,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       return {ok:true};
     }
     throw new Error('Unknown request.');
-  })().then(respond, error => respond({ok:false,error:error.message}));
+  })().then(respond, error => respond({ok:false,error:error.message,recollect:!!error.recollect}));
   return true;
 });
 // Remove only collector tabs created for this extension page, never a user's Hapana tab.

@@ -13,7 +13,7 @@
   let portalTicket='',portalStartError='';
   let feedbackTicket='',feedbackStartError='';
   const feedbackModel=createFeedbackModel();
-  const feedbackUI=createFeedbackSyncUI({installed,demo,background,onBusyChange:busy=>{$('refresh').disabled=busy||collecting||savingSchedule;},getTicket:()=>{
+  const feedbackUI=createFeedbackSyncUI({installed,demo,background,recollect:start,onBusyChange:busy=>{$('refresh').disabled=busy||collecting||savingSchedule;},getTicket:()=>{
     if(!feedbackTicket)throw new Error(feedbackStartError||'Sign in to the portal as an admin and collect again.');
     return feedbackTicket;
   },getCapture:()=>{
@@ -31,7 +31,7 @@
   const pause = ms => new Promise(resolve => setTimeout(resolve,ms));
   async function background(type, data={}) {
     const response=await chrome.runtime.sendMessage({namespace:'stp-rolls',type,...data});
-    if(!response?.ok) throw new Error(response?.error || 'The extension could not respond. Reload it and refresh Hapana.');
+    if(!response?.ok) throw Object.assign(new Error(response?.error || 'The extension could not respond. Reload it and refresh Hapana.'),{recollect:!!response?.recollect});
     return response;
   }
   function status(title,detail,kind='') { $('status').textContent=title; $('status-detail').textContent=detail; $('status-dot').className='dot '+kind; }

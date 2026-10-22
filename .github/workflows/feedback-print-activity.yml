@@ -26,6 +26,7 @@ jobs:
           node extensions/daily-rolls/tests/schedule-unit.cjs
           node extensions/daily-rolls/tests/schedule-flow.cjs
           node extensions/daily-rolls/tests/portal-bridge.cjs
+          node extensions/daily-rolls/tests/portal-reconnect.cjs
           node extensions/daily-rolls/tests/feedback-sync.cjs
       - run: npm run typecheck
       - run: npm run build
