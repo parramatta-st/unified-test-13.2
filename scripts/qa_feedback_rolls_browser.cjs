@@ -76,11 +76,19 @@ const html=e=>`<${e.tagName.toLowerCase()} ${Object.entries(e.attrs).map(([k,v])
  if(await savedDate.inputValue()!==DATE)await savedDate.fill(DATE);
  await portal.getByRole('button',{name:'Refresh saved day'}).click();
  await portal.getByText(/No student bookings have synced/).waitFor();
+ // Reproduce the missing listener left by updating/reloading an extension
+ // while a portal tab remains open. Its page and draft must stay intact.
+ await portal.evaluate(()=>{window.__qaReconnectDraft='keep this draft';});
+ const portalId=await worker.evaluate(async()=>{const tabs=await chrome.tabs.query({url:'https://unified-site.successtutoringparramatta.com/*'});return tabs[0].id;});
+ async function disconnectBridge(){await worker.evaluate(async tabId=>chrome.scripting.executeScript({target:{tabId},func:()=>{if(!globalThis.__stpRollsPortalBridge)throw Error('Fixture expected an installed bridge');chrome.runtime.onMessage.removeListener(globalThis.__stpRollsPortalBridge);delete globalThis.__stpRollsPortalBridge;}}),portalId);}
+ await disconnectBridge();
  const source=await context.newPage();await source.goto('https://core.hapana.com/index.php?route=dashboard/schedule&view=day');
  const sourceId=await worker.evaluate(async()=>{const tabs=await chrome.tabs.query({url:'https://core.hapana.com/*'});return tabs.find(tab=>tab.url.includes('view=day')).id;});
  review=await context.newPage();review.on('pageerror',error=>errors.push(error.message));review.on('dialog',dialog=>dialog.accept());await review.goto(`chrome-extension://${extensionId}/review.html?source=${sourceId}`);
  const synced=()=>review.waitForFunction(()=>document.getElementById('feedback-sync-status').textContent.startsWith('Student bookings synced to Feedback')&&!document.getElementById('refresh').disabled,{},{timeout:60000});
  await synced();
+ assert.equal(await portal.evaluate(()=>window.__qaReconnectDraft),'keep this draft','Reconnection must preserve the existing portal page');
+ console.log('PASS: already-open portal reconnects after its extension bridge is lost, without navigation or draft loss');
  assert.equal(await review.getByRole('link',{name:'Link tutors and students ↗'}).getAttribute('href'),PORTAL+'/admin/feedback-schedule');
  assert.equal(imports.length,1);assert.ok(!JSON.stringify(imports).includes('04XX'));assert.ok(!JSON.stringify(imports).includes('Pending'));assert.deepEqual(imports[0].sessions[0].students.map(student=>student.id).sort(),['sample0','sample1']);assert.equal(imports[0].sessions[0].students.find(student=>student.id==='sample1').name,'Parent Booking');
  await portal.bringToFront();await portal.getByRole('button',{name:'Refresh saved day'}).click();
@@ -127,6 +135,15 @@ const html=e=>`<${e.tagName.toLowerCase()} ${Object.entries(e.attrs).map(([k,v])
  await identity('Demo Admin','admin');failWrites=true;await review.locator('#refresh').click();await review.getByText(/Student bookings have NOT been confirmed in Feedback/).waitFor();assert.equal(await review.locator('#print-all').isEnabled(),true);
  failWrites=false;await review.locator('#feedback-sync-retry').click();await synced();
  const before=sheets.get('feedback_roll_events').length;await review.locator('#feedback-sync-retry').click();await synced();assert.equal(sheets.get('feedback_roll_events').length,before);
+ const importsBefore=imports.length;await disconnectBridge();await review.locator('#feedback-sync-retry').click();await synced();assert.equal(imports.length,importsBefore+1);assert.equal(sheets.get('feedback_roll_events').length,before);
+ console.log('PASS: missing bridge during upload reconnects, retries once and does not duplicate the saved collection');
+ // An initial admin failure cannot be repaired by repeatedly uploading with
+ // no ticket. Sign in and recollect so the ticket precedes the fresh data.
+ await identity('Sai','tutor');await review.locator('#refresh').click();await review.getByText(/Student bookings have NOT been confirmed in Feedback/).waitFor();
+ await review.getByRole('button',{name:'Reconnect and recollect',exact:true}).waitFor();
+ const uploadsBefore=imports.length;await identity('Demo Admin','admin');await review.getByRole('button',{name:'Reconnect and recollect',exact:true}).click();await synced();assert.equal(imports.length,uploadsBefore+1);
+ assert.equal(await review.locator('#feedback-sync-retry').innerText(),'Retry student sync');
+ console.log('PASS: failed initial admin handshake recovers through fresh signed collection rather than reticketing an older capture');
  await review.screenshot({path:path.join(artifacts,'extension-sync-confirmed.png'),fullPage:true});
  const local=await worker.evaluate(async()=>chrome.storage.local.get(null));assert.ok(!JSON.stringify(local).includes('Student Example'));
  assert.deepEqual(errors,[]);console.log('PASS: failed sync keeps printing available, same-collection retry is idempotent and local tutor backups have no student data');

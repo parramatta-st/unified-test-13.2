@@ -3,9 +3,10 @@ const source=fs.readFileSync(path.join(__dirname,'../portal-bridge.js'),'utf8');
 let passed=0;
 async function test(name,fn){await fn();passed++;console.log('PASS',name);}
 (async()=>{
- let listener,calls=[],response={ok:true,ticket:'signed-fixture'},responseOK=true;
- const context={location:{origin:'https://unified-site.successtutoringparramatta.com'},chrome:{runtime:{id:'ours',onMessage:{addListener:fn=>listener=fn}}},AbortController,setTimeout,clearTimeout,fetch:async(url,options)=>{calls.push({url,options});return{ok:responseOK,json:async()=>response};}};
+ let listener,calls=[],response={ok:true,ticket:'signed-fixture'},responseOK=true,removed=0;
+ const context={location:{origin:'https://unified-site.successtutoringparramatta.com'},chrome:{runtime:{id:'ours',onMessage:{addListener:fn=>listener=fn,removeListener:fn=>{assert.equal(fn,listener);removed++;}}}},AbortController,setTimeout,clearTimeout,fetch:async(url,options)=>{calls.push({url,options});return{ok:responseOK,status:responseOK?200:401,json:async()=>response};}};
  vm.runInNewContext(source,context);
+ await test('Reconnecting replaces the old listener rather than duplicating uploads',()=>{vm.runInNewContext(source,context);assert.equal(removed,1);});
  const send=(body,sender={id:'ours'})=>new Promise(resolve=>listener({namespace:'stp-rolls',type:'PORTAL_SCHEDULE_REQUEST',body},sender,resolve));
  await test('Legacy Vercel alias remains explicitly supported',()=>{let registered=false;vm.runInNewContext(source,{location:{origin:'https://unified-test-13-2.vercel.app'},chrome:{runtime:{onMessage:{addListener(){registered=true;}}}}});assert.equal(registered,true);});
  await test('Bridge is inactive on every other origin',()=>{let registered=false;vm.runInNewContext(source,{location:{origin:'https://attacker.invalid'},chrome:{runtime:{onMessage:{addListener(){registered=true;}}}}});assert.equal(registered,false);});
@@ -13,6 +14,6 @@ async function test(name,fn){await fn();passed++;console.log('PASS',name);}
  await test('Only collection-start and schedule-import actions are accepted',async()=>{const result=await send({action:'void_shift'});assert.equal(result.ok,false);assert.equal(calls.length,0);});
  await test('Bridge calls only the same-origin schedule endpoint using the existing portal session',async()=>{const result=await send({action:'begin_collection',date:'2026-10-13',captureId:'fixture'});assert.equal(result.ticket,'signed-fixture');assert.equal(calls[0].url,'/api/admin/hapana-schedule');assert.equal(calls[0].options.credentials,'same-origin');assert.equal(calls[0].options.method,'POST');assert.equal(JSON.parse(calls[0].options.body).action,'begin_collection');});
  await test('Feedback collection uses same-origin cookies on the custom portal domain',async()=>{const result=await send({action:'begin_feedback_collection',date:'2026-10-20',captureId:'fixture-feedback'});assert.equal(result.ok,true);assert.equal(calls.at(-1).url,'/api/admin/feedback-rolls');assert.equal(calls.at(-1).options.credentials,'same-origin');});
- await test('Sign-in/server errors are returned clearly without claiming a sync',async()=>{responseOK=false;response={ok:false,error:'Admin sign-in required'};const result=await send({action:'import_schedule',capture:{}});assert.equal(result.ok,false);assert.equal(result.error,'Admin sign-in required');});
+ await test('Sign-in errors require recollection rather than reusing a failed start',async()=>{responseOK=false;response={ok:false,error:'Admin sign-in required'};const result=await send({action:'import_schedule',capture:{}});assert.equal(result.ok,false);assert.equal(result.error,'Admin sign-in required');assert.equal(result.status,401);assert.equal(result.recollect,true);});
  console.log(`\n${passed} portal bridge tests passed.`);
 })().catch(error=>{console.error(error);process.exitCode=1;});
