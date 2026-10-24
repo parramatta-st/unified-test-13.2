@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
 import TimeClockButton from './TimeClockButton';
+import TimeClockAlerts from './TimeClockAlerts';
 import { clearTimeClockStatus } from '../lib/timeClockClientState';
 
 export default function Header(){
@@ -9,6 +10,7 @@ export default function Header(){
   const [tutor,setTutor] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [clockAlertsEnabled, setClockAlertsEnabled] = useState(false);
 
   const loadUnread = useCallback(async () => {
     try {
@@ -49,6 +51,7 @@ export default function Header(){
         if (cancelled) return;
         const admin = !!j?.isAdmin;
         setIsAdmin(admin);
+        setClockAlertsEnabled(admin && String(j?.campus || '').toLowerCase() === 'parramatta');
         try { localStorage.setItem('st_is_admin', admin ? '1' : '0'); } catch {}
         if (admin) {
           // The Inbox page already polls /api/sent-feedback and dispatches its
@@ -99,7 +102,7 @@ export default function Header(){
   }
 
   return (
-    <header className="header">
+    <><header className="header">
       <div className="header-inner container" style={{paddingLeft:'1rem', paddingRight:'1rem'}}>
         <Link href="/" className="brand brand-link" prefetch={false} aria-label="Success Tutoring Portal home">
           <span className="brand-mark" aria-hidden="true">ST</span>
@@ -200,6 +203,7 @@ export default function Header(){
           }
         }
       `}</style>
-    </header>
+    </header>{clockAlertsEnabled && !hideNav && <TimeClockAlerts />}</>
   );
 }
+

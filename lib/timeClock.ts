@@ -103,6 +103,7 @@ export const SHIFT_HEADERS = [
   'reviewFlags',
   'lastEventId',
   'clockInAccessMethod', 'clockOutAccessMethod', 'clockInAccessPoint', 'clockOutAccessPoint',
+  'approvedAt', 'approvedBy', 'approvedClockIn', 'approvedClockOut',
 ] as const;
 
 export const ADJUSTMENT_HEADERS = [
@@ -146,7 +147,8 @@ export type TimeClockAction =
   | 'clock_out'
   | 'admin_create'
   | 'admin_edit'
-  | 'admin_void';
+  | 'admin_void'
+  | 'admin_approve';
 
 export type ClockEvent = Record<(typeof EVENT_HEADERS)[number], string> & {
   sequence?: number;
@@ -203,6 +205,10 @@ export type TimeClockShift = {
   voidReason: string;
   reviewFlags: string[];
   lastEventId: string;
+  approvedAt?: string;
+  approvedBy?: string;
+  approvedClockIn?: string;
+  approvedClockOut?: string;
   clockInAccessMethod?: string;
   clockOutAccessMethod?: string;
   clockInAccessPoint?: string;
@@ -213,7 +219,7 @@ export type TimeClockAdjustment = {
   adjustmentId: string;
   eventId: string;
   shiftId: string;
-  action: 'created' | 'edited' | 'voided';
+  action: 'created' | 'edited' | 'voided' | 'approved';
   campusKey: string;
   tutorId: string;
   tutorName: string;
@@ -327,6 +333,10 @@ export function timeClockSpreadsheetId() {
   return spreadsheetIdFor('TIME_CLOCK');
 }
 
+export function durationReviewEnabled(campusKey: string) {
+  return lower(campusKey) === lower(process.env.TIME_CLOCK_REVIEW_CAMPUS_KEY || 'parramatta');
+}
+
 export function timeClockConfigured() {
   const rawLatitude = norm(process.env.TIME_CLOCK_LATITUDE);
   const rawLongitude = norm(process.env.TIME_CLOCK_LONGITUDE);
@@ -362,21 +372,23 @@ export function timeClockConfigured() {
       5_000,
     ),
     longShiftHours: boundedNumber(
-      process.env.TIME_CLOCK_LONG_SHIFT_HOURS,
-      16,
+      process.env.TIME_CLOCK_REVIEW_HOURS,
+      8,
       4,
       168,
     ),
     openShiftAlertHours: boundedNumber(
-      process.env.TIME_CLOCK_OPEN_SHIFT_ALERT_HOURS,
-      12,
-      2,
+      process.env.TIME_CLOCK_REVIEW_HOURS,
+      8,
+      4,
       168,
     ),
+    legacyLongShiftHours: boundedNumber(process.env.TIME_CLOCK_LONG_SHIFT_HOURS, 16, 4, 168),
+    legacyOpenShiftAlertHours: boundedNumber(process.env.TIME_CLOCK_OPEN_SHIFT_ALERT_HOURS, 12, 2, 168),
   };
 }
 
-export function publicTimeClockConfig() {
+export function publicTimeClockConfig(campusKey = 'parramatta') {
   const config = timeClockConfigured();
   return {
     sheets: config.sheets,
@@ -386,8 +398,9 @@ export function publicTimeClockConfig() {
     geofenceError: config.geofenceError,
     radiusM: config.radiusM,
     maxAccuracyM: config.maxAccuracyM,
-    longShiftHours: config.longShiftHours,
-    openShiftAlertHours: config.openShiftAlertHours,
+    longShiftHours: durationReviewEnabled(campusKey) ? config.longShiftHours : config.legacyLongShiftHours,
+    openShiftAlertHours: durationReviewEnabled(campusKey) ? config.openShiftAlertHours : config.legacyOpenShiftAlertHours,
+    durationApprovalEnabled: durationReviewEnabled(campusKey),
     sheetNames: timeClockSheetNames(),
   };
 }
@@ -851,7 +864,7 @@ function applyEvent(
   if (event.actorRole !== 'admin') {
     return rejected('ADMIN_REQUIRED', 'Only an admin can apply this event.');
   }
-  if (action !== 'admin_create' && !event.reason) {
+  if (!['admin_create', 'admin_approve'].includes(action) && !event.reason) {
     return rejected('REASON_REQUIRED', 'A written reason is required.');
   }
 
@@ -976,6 +989,8 @@ function applyEvent(
       );
     }
     const before = cloneShift(shift);
+    shift.approvedAt = ''; shift.approvedBy = '';
+    shift.approvedClockIn = ''; shift.approvedClockOut = '';
     shift.clockIn = event.clockIn;
     shift.clockOut = event.clockOut;
     shift.updatedAt = event.occurredAt;
@@ -1018,6 +1033,20 @@ function applyEvent(
     return accepted(shift.shiftId, 'SHIFT_VOIDED');
   }
 
+  if (action === 'admin_approve') {
+    if (!durationReviewEnabled(shift.campusKey)) return rejected('APPROVAL_NOT_ENABLED', 'Duration approval is not enabled for this campus.', shift.shiftId);
+    const startMs = instant(shift.clockIn), endMs = instant(shift.clockOut);
+    if (shift.status !== 'completed' || !Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs || endMs > eventMs + 5 * 60_000) {
+      return rejected('COMPLETE_SHIFT_REQUIRED', 'Enter valid completed shift times before approving hours.', shift.shiftId);
+    }
+    const before = cloneShift(shift);
+    shift.approvedAt = event.occurredAt; shift.approvedBy = event.actorName;
+    shift.approvedClockIn = shift.clockIn; shift.approvedClockOut = shift.clockOut;
+    shift.updatedAt = event.occurredAt; shift.version += 1; shift.lastEventId = event.eventId;
+    adjustments.push(adjustmentFrom(event, 'approved', before, cloneShift(shift)));
+    return accepted(shift.shiftId, 'SHIFT_APPROVED');
+  }
+
   return rejected('UNKNOWN_ACTION', 'The event action is not supported.');
 }
 
@@ -1026,6 +1055,8 @@ function calculateReviewFlags(
   nowMs: number,
   longShiftHours: number,
   openShiftAlertHours: number,
+  legacyLongShiftHours: number,
+  legacyOpenShiftAlertHours: number,
 ) {
   for (const shift of shifts) {
     if (shift.status === 'voided') {
@@ -1033,6 +1064,7 @@ function calculateReviewFlags(
       continue;
     }
     const flags = new Set<string>();
+    const reviewEnabled = durationReviewEnabled(shift.campusKey);
     const startMs = instant(shift.clockIn);
     const endMs = shift.clockOut ? instant(shift.clockOut) : Number.NaN;
     if (!Number.isFinite(startMs) || (shift.clockOut && (!Number.isFinite(endMs) || endMs <= startMs))) {
@@ -1042,14 +1074,15 @@ function calculateReviewFlags(
       flags.add('future_clock_in');
     }
     if (shift.status === 'active' && Number.isFinite(startMs)) {
-      if (durationHours(startMs, nowMs) >= openShiftAlertHours) {
+      if (reviewEnabled ? durationHours(startMs, nowMs) > openShiftAlertHours : durationHours(startMs, nowMs) >= legacyOpenShiftAlertHours) {
         flags.add('open_over_limit');
       }
     } else if (
       shift.clockOut &&
       Number.isFinite(startMs) &&
       Number.isFinite(endMs) &&
-      durationHours(startMs, endMs) >= longShiftHours
+      (reviewEnabled ? durationHours(startMs, endMs) > longShiftHours : durationHours(startMs, endMs) >= legacyLongShiftHours) &&
+      !(shift.approvedBy && shift.approvedAt && shift.approvedClockIn === shift.clockIn && shift.approvedClockOut === shift.clockOut)
     ) {
       flags.add('long_shift');
     }
@@ -1115,6 +1148,7 @@ export function replayTimeClockEvents(
     'admin_create',
     'admin_edit',
     'admin_void',
+    'admin_approve',
   ]);
 
   inputRows.forEach((row, sequence) => {
@@ -1190,6 +1224,8 @@ export function replayTimeClockEvents(
     options.nowMs ?? Date.now(),
     options.longShiftHours ?? config.longShiftHours,
     options.openShiftAlertHours ?? config.openShiftAlertHours,
+    options.longShiftHours ?? config.legacyLongShiftHours,
+    options.openShiftAlertHours ?? config.legacyOpenShiftAlertHours,
   );
   return {
     events,
@@ -1613,6 +1649,7 @@ export function buildPayrollRange(options: {
   for (const row of rows) {
     const completed = row.status === 'completed' && row.rangeElapsedHours > 0;
     if (!completed && !(row.status === 'active' && row.reviewFlags.length)) continue;
+    const payable = completed && (!durationReviewEnabled(row.campusKey) || !row.reviewFlags.some(flag => ['long_shift', 'invalid_timestamps', 'future_clock_in', 'overlapping_shift'].includes(flag)));
     const key = `${lower(row.campusKey)}|${row.tutorId || lower(row.tutorName)}`;
     const current = summaryMap.get(key) || {
       premiumMinutes: 0,
@@ -1633,12 +1670,14 @@ export function buildPayrollRange(options: {
       totalHours: 0,
       reviewCount: 0,
     };
-    if (completed) current.shifts += 1;
+    if (payable) current.shifts += 1;
+    if (payable) {
     current.normalMinutes += row.rangeNormalMinutes;
     current.after7Minutes += row.rangeAfter7Minutes;
     current.saturdayMinutes += row.rangeSaturdayMinutes;
     current.unclassifiedMinutes += row.rangeUnclassifiedMinutes;
     current.totalMinutes += row.rangeElapsedMinutes;
+    }
     if (row.reviewFlags.length) current.reviewCount += 1;
     summaryMap.set(key, current);
   }
@@ -1682,3 +1721,4 @@ export function statusForOutcome(outcome: EventOutcome) {
   if (outcome.code === 'ADMIN_REQUIRED') return 403;
   return 400;
 }
+

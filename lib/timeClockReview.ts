@@ -10,12 +10,12 @@ export const reviewLabels: Record<string, string> = {
   overlapping_shift: 'Overlaps another shift',
 };
 
-export function reviewExplanation(flag: string, config: { longShiftHours?: number; openShiftAlertHours?: number } = {}) {
+export function reviewExplanation(flag: string, config: { longShiftHours?: number; openShiftAlertHours?: number; durationApprovalEnabled?: boolean } = {}) {
   const explanations: Record<string, string> = {
     invalid_timestamps: 'The stored times are missing, invalid, or in the wrong order. Use Edit times to correct them before processing payroll.',
     future_clock_in: 'The start time is in the future. Check the shift date and AM/PM using Edit times.',
-    open_over_limit: `This shift is still open after ${config.openShiftAlertHours || 12} hours. Check when the tutor finished and enter the end time. Open shifts are excluded from payroll totals.`,
-    long_shift: `This shift lasted at least ${config.longShiftHours || 16} hours. Check the start and end times before processing payroll.`,
+    open_over_limit: `This shift has been open for ${config.durationApprovalEnabled === false ? 'at least' : 'more than'} ${config.openShiftAlertHours || 8} hours. Check when the tutor finished and enter the end time. Open shifts are excluded from payroll totals.`,
+    long_shift: config.durationApprovalEnabled === false ? `This shift lasted at least ${config.longShiftHours || 16} hours. Check the start and end times before processing payroll.` : `This shift lasted more than ${config.longShiftHours || 8} hours. Check the times and approve the hours before they are included in payroll totals.`,
     crosses_midnight: 'This shift extends into another Sydney calendar day. Check for a missed clock-out and correct the end time if needed.',
     sunday_unclassified: 'Sunday work has no configured pay category. These hours are shown separately and are excluded from Normal and combined After 7 PM + Saturday totals.',
     clock_in_location_unverified: 'No verified location or admin override is recorded for clock-in. Check the clock-in audit and confirm the tutor attended.',
@@ -24,3 +24,4 @@ export function reviewExplanation(flag: string, config: { longShiftHours?: numbe
   };
   return explanations[flag] || `Review the recorded issue: ${flag.replace(/_/g, ' ')}.`;
 }
+
