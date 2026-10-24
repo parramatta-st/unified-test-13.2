@@ -88,7 +88,9 @@ function createHapanaReader() {
     const labels = [...(header?.children || [])].map(e => clean(e.textContent));
     const phoneIndex = labels.findIndex(s => /^Phone/i.test(s));
     const paymentIndex = labels.findIndex(s => /^Payment Type$/i.test(s));
+    const lateCancelIndex = labels.findIndex(s => /^Late\s*Cancel(?:led|lation(?:s)?)?$/i.test(s));
     const students = new Map();
+    const cancellationStates = new Map(), cancelled = new Set();
     for (const row of list.querySelectorAll(':scope > li')) {
       const cells = [...row.children].filter(e => e.tagName === 'DIV');
       // Hapana renders each student twice (desktop + mobile). Use the structured desktop row.
@@ -98,11 +100,19 @@ function createHapanaReader() {
       const id = new URL(a.getAttribute('href'), pageUrl).searchParams.get('cid');
       const name = clean(a.textContent);
       if (!id || !name) throw new Error('A booked student is missing their name or identifier.');
+      // Hapana keeps late-cancelled clients in the booked-list DOM, while
+      // Total Booked excludes them. Read only that labelled column: RSVP,
+      // attendance, payment and row styling do not determine a booking.
+      const lateCancelled = lateCancelIndex >= 0 && [...cells[lateCancelIndex].querySelectorAll('input[type="checkbox"]')].some(input => input.checked === true);
+      if (cancellationStates.has(id) && cancellationStates.get(id) !== lateCancelled) throw new Error('A student’s cancellation status changed while the list was loading. Wait, then retry this class.');
+      cancellationStates.set(id, lateCancelled);
+      if (lateCancelled) { cancelled.add(id); continue; }
       students.set(id, {id, name, phone: phoneIndex >= 0 ? clean(cells[phoneIndex]?.textContent) : '', payment: paymentIndex >= 0 ? clean(cells[paymentIndex]?.textContent) : ''});
     }
     if (students.size !== booked) throw new Error(`Incomplete student list: read ${students.size} of ${booked} bookings. No roll will be printed for this class until they match.`);
     if (booked > 0 && !labels.includes('Client Name')) throw new Error('Hapana’s attendee layout has changed. Please report this before using the roll.');
     const warnings = [];
+    if (cancelled.size) warnings.push(`${cancelled.size} late cancellation${cancelled.size === 1 ? '' : 's'} excluded from booked students.`);
     if (booked > capacity) warnings.push(`${booked} booked / ${capacity} capacity in Hapana`);
     if (expected.displayedBooked !== null && booked !== expected.displayedBooked) warnings.push('Booking count changed since the day was loaded; the opened session count was used.');
     return {...expected, name: clean(m[1]), start, end, time: `${clean(m[2])} - ${clean(m[3])}`, tutor: props.Instructor, campus: props.Location, sessionType: props['Session Type'] || '', booked, capacity, students: [...students.values()].sort((a,b) => a.name.localeCompare(b.name, 'en-AU')), warnings, room: '', collectedAt: new Date().toISOString()};

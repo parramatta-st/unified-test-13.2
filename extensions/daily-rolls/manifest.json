@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Success Tutoring • Daily Rolls",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "Collect and print Hapana rolls. Sync verified student bookings to Parramatta Feedback and retain tutor-only schedule backups.",
   "minimum_chrome_version": "112",
   "permissions": ["storage", "scripting"],

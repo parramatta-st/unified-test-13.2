@@ -61,7 +61,7 @@ const html=e=>`<${e.tagName.toLowerCase()} ${Object.entries(e.attrs).map(([k,v])
    return route.fulfill(response);
  });
  await context.route('https://core.hapana.com/**',route=>{
-   const url=new URL(route.request().url()),eid=url.searchParams.get('eid')||'100',f=fixture({eid,tutor:eid==='100'?tutor:'Other Tutor'});
+   const url=new URL(route.request().url()),eid=url.searchParams.get('eid')||'100',f=fixture({eid,tutor:eid==='100'?tutor:'Other Tutor',rows:eid==='100'?3:2,lateCancel:eid==='100'?[2]:[]});
    const rename=node=>{if(eid==='100'&&node.text==='Student Example 2')node.text='Parent Booking';if(eid==='200'){if(node.text==='Student Example 1')node.text='Balakrishnan Ramalingam';if(node.text==='Student Example 2')node.text='Canoncal Student';if(node.attrs.href?.includes('cid=sample'))node.attrs.href=node.attrs.href.replace('cid=sample','cid=other');}node.children.forEach(rename);};rename(f.doc);
    f.doc.querySelector('#getdaymyEvents').children=['100','200'].map(id=>new El('li','',{},[new El('a','10:00 AM K-6 English Study Hub(2)',{href:fixture({eid:id}).href})]));
    return route.fulfill({contentType:'text/html',body:'<!doctype html><html><head><title>Fictional Hapana</title></head>'+html(f.doc)+'</html>'});
@@ -91,6 +91,8 @@ const html=e=>`<${e.tagName.toLowerCase()} ${Object.entries(e.attrs).map(([k,v])
  console.log('PASS: already-open portal reconnects after its extension bridge is lost, without navigation or draft loss');
  assert.equal(await review.getByRole('link',{name:'Link tutors and students ↗'}).getAttribute('href'),PORTAL+'/admin/feedback-schedule');
  assert.equal(imports.length,1);assert.ok(!JSON.stringify(imports).includes('04XX'));assert.ok(!JSON.stringify(imports).includes('Pending'));assert.deepEqual(imports[0].sessions[0].students.map(student=>student.id).sort(),['sample0','sample1']);assert.equal(imports[0].sessions[0].students.find(student=>student.id==='sample1').name,'Parent Booking');
+ assert.ok(!imports[0].sessions.some(session=>session.students.some(student=>student.id==='sample2')),'Late-cancelled client must not enter the saved Feedback schedule');
+ console.log('PASS: two booked students plus a visible late cancellation collect and sync only the active bookings');
  await portal.bringToFront();await portal.getByRole('button',{name:'Refresh saved day'}).click();
  await portal.getByLabel('Portal account for Sai Arulanathan',{exact:true}).waitFor();
  assert.equal(await portal.getByLabel('Portal account for Sai Arulanathan',{exact:true}).inputValue(),'Sai','Unique tutor first name matches without manual linking');
