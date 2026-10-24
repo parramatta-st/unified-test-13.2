@@ -5,7 +5,7 @@ const extension=path.resolve(__dirname,'..'),profile=fs.mkdtempSync(path.join(os
 const artifacts=process.env.STP_TEST_ARTIFACTS||path.join(os.tmpdir(),'stp-rolls-artifacts');fs.mkdirSync(artifacts,{recursive:true});
 const escape=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 const html=e=>`<${e.tagName.toLowerCase()} ${Object.entries(e.attrs).map(([k,v])=>`${k}="${escape(v)}"`).join(' ')}>${escape(e.text)}${e.children.map(html).join('')}</${e.tagName.toLowerCase()}>`;
-let tutor='Kevin',visible=['100','200'],combined=false,signInWall=false,context,passed=0,portalImports=[];
+let tutor='Kevin',visible=['100','200'],combined=false,signInWall=false,lateCancelFixture=false,context,passed=0,portalImports=[];
 async function test(name,fn){await fn();passed++;console.log('PASS',name);}
 (async()=>{
  context=await chromium.launchPersistentContext(profile,{headless:true,executablePath:chromium.executablePath(),args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`,'--no-sandbox'],viewport:{width:1440,height:1000},acceptDownloads:true});
@@ -24,7 +24,7 @@ async function test(name,fn){await fn();passed++;console.log('PASS',name);}
   const url=new URL(route.request().url()),eid=url.searchParams.get('eid')||'100';
   if(signInWall&&url.searchParams.has('eid'))return route.fulfill({status:302,headers:{location:'https://core.hapana.com/login'}});
   if(url.pathname==='/login')return route.fulfill({contentType:'text/html',body:'<input type="password"><p>Sign in</p>'});
-  const f=fixture({eid,tutor:eid==='100'?tutor:combined?`${tutor} (sub)`:'Ammay'}),list=f.doc.querySelector('#getdaymyEvents');
+  const f=fixture({eid,tutor:eid==='100'?tutor:combined?`${tutor} (sub)`:'Ammay',rows:lateCancelFixture?3:2,lateCancel:lateCancelFixture?[2]:[]}),list=f.doc.querySelector('#getdaymyEvents');
   list.children=visible.map(id=>new El('li','',{},[new El('a','10:00 AM K-6 English Study Hub(2)',{href:fixture({eid:id}).href})]));
   return route.fulfill({contentType:'text/html',body:'<!doctype html><html><head><title>Fictional Hapana test</title></head>'+html(f.doc)+'</html>'});
  });
@@ -94,6 +94,18 @@ async function test(name,fn){await fn();passed++;console.log('PASS',name);}
   assert.equal(await review.locator('.tutor-page').count(),1);assert.equal(await review.locator('.name-cell').count(),4);
   await review.evaluate(()=>window.dispatchEvent(new Event('beforeprint')));
   assert.equal(await review.locator('.print-class').count(),2);assert.equal(await review.locator('.name-cell').count(),4);
+ });
+ await test('Late cancellations do not block collection or enter printed room and tutor rolls',async()=>{
+  await review.locator('#back').click();lateCancelFixture=true;
+  await source.reload();await review.locator('#refresh').click();await saved();
+  assert.equal(await review.locator('#errors').isVisible(),false);
+  assert.equal(await review.locator('.class-card .warning').filter({hasText:'1 late cancellation excluded'}).count(),2);
+  assert.equal(await review.locator('#print-all').isEnabled(),true);
+  for(const kind of ['rooms','tutors']){
+   await review.locator('#preview-'+kind).click();assert.equal(await review.locator('.name-cell').count(),4);
+   assert.ok(!(await review.locator('#print-pages').innerText()).includes('Student Example 3'));
+   await review.screenshot({path:path.join(artifacts,'late-cancel-'+kind+'.png'),fullPage:true});await review.locator('#back').click();
+  }
  });
  assert.deepEqual(errors,[],'Browser JavaScript errors');
  console.log(`\n${passed} browser scenarios passed. Screenshots: ${artifacts}`);

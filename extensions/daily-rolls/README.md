@@ -1,6 +1,10 @@
-# Daily Rolls 0.6.3 — recover the portal connection
+# Daily Rolls 0.6.4 — handle late cancellations correctly
 
 This release connects verified Hapana student bookings to `parramatta-st/unified-test-13.2`. Install the matching portal change before collecting. Open START-HERE.html for the numbered setup guide.
+
+## Late cancellations
+
+Hapana retains late-cancelled clients in its visible booked list but excludes them from Total Booked. The reader now uses the live checkbox in the labelled Late Cancel column to exclude those clients from printed rolls and Feedback schedules. Two active bookings plus one visible late cancellation now verify as two bookings. RSVP, attendance, pending payment, row order and grey styling do not decide whether a booking is included. Missing or unexplained extra active bookings still block collection. Conflicting cancellation states for a duplicated client require another read.
 
 ## Portal reconnection
 
@@ -15,7 +19,7 @@ Overlapping classes taught by the same tutor now share one room. Room suggestion
 ## Update and use
 
 1. Unzip the download. Copy **all files inside hapana-rolls** into the permanent folder used by the existing Chrome extension. Replace matching files and include the new scripts. Keep the existing extension installation so tutor-only backups survive.
-2. Open `chrome://extensions`, click Reload on Daily Rolls and confirm version **0.6.3**. Close old review tabs and refresh both Hapana and the portal.
+2. Open `chrome://extensions`, click Reload on Daily Rolls and confirm version **0.6.4**. Close old review tabs and refresh both Hapana and the portal.
 3. Sign in **as an admin** at https://unified-site.successtutoringparramatta.com/admin/feedback-schedule in the same Chrome profile.
 4. In Hapana, select Schedule → Day and the required date. Clear filters. To replace the entire included day, tick **All classes for this day are visible** before collecting; otherwise unseen classes are retained.
 5. Collect the day and wait for **Student bookings synced to Feedback** in the new Student bookings panel. Local tutor backup success is a separate confirmation.
