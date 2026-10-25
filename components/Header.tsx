@@ -116,6 +116,7 @@ export default function Header(){
                 {unreadCount > 0 && <span className="nav-unread" aria-label={`${unreadCount} unread feedback conversation${unreadCount === 1 ? '' : 's'}`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}
               </Link>
             )}
+            <Link className={navClass('/downloads')} href="/downloads" prefetch={false}>Downloads</Link>
             <Link className={navClass('/print')} href="/print" prefetch={false}>Print</Link>
             <Link className={navClass('/progress')} href="/progress" prefetch={false}>Progress</Link>
             {isAdmin && (
@@ -203,3 +204,4 @@ export default function Header(){
     </header>
   );
 }
+
