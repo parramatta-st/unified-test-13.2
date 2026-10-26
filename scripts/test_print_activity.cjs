@@ -61,6 +61,24 @@ async function test(name,fn){ await fn();checks++;console.log('PASS:',name); }
    assert.equal(prints,0);assert.throws(()=>queue.enqueue(batch([item(2)])),/Sign in/);
  });
  const {studentPrintBatches}=load('lib/studentPrintHistory.ts');
+ await test('known Mac preparation failure reports not sent and stops the batch without retrying',async()=>{
+   let calls=0;
+   const {PrintActivityQueue,printRequest}=load('lib/printActivity.ts',{fetch:async()=>{
+     calls++;return{ok:false,json:async()=>({ok:false,code:'TEMP_WRITE_FAILED',error:'Could not write the temporary stamped PDF'})};
+   }});
+   const queue=new PrintActivityQueue(printRequest,()=>{});
+   queue.enqueue(batch([item(1),item(2)]));await tick();
+   assert.equal(calls,1);assert.equal(queue.batches[0].sent,0);assert.equal(queue.batches[0].state,'attention');
+   assert.match(queue.batches[0].error,/was not sent/);assert.doesNotMatch(queue.batches[0].error,/may have reached/);
+   await tick();assert.equal(calls,1);
+ });
+ await test('unknown service error and topic error keep the uncertain-outcome warning',async()=>{
+   const {PrintActivityQueue,printRequest}=load('lib/printActivity.ts',{fetch:async()=>({ok:false,json:async()=>({ok:false,code:'PRINT_FAILED',error:'Printer process failed'})})});
+   const queue=new PrintActivityQueue(printRequest,()=>{});queue.enqueue(batch([item(1)]));await tick();
+   assert.match(queue.batches[0].error,/may have reached/);
+   const topic=load('lib/printActivity.ts',{fetch:async()=>({ok:false,json:async()=>({ok:false,code:'TEMP_WRITE_FAILED',error:'Topic error'})})});
+   await assert.rejects(topic.printRequest('/api/print-proxy?action=print-topic',{}),error=>error.printNotSubmitted!==true);
+ });
  const row=(raw,other={})=>({Raw:JSON.stringify(raw),Student:raw.student||'QA Student',OK:raw.ok===false?'FALSE':'TRUE',...other});
  await test('history groups one click, separates sources and excludes other identities, campuses and failures',()=>{
    const base={when:'2026-10-19T06:00:00Z',student:'QA Student',studentId:'s1',campusKey:'epping',ok:true,batchId:'a',batchStudentSize:2,qty:1};

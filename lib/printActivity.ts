@@ -118,7 +118,9 @@ export class PrintActivityQueue {
           batch.current = '';
         } catch (error: any) {
           batch.state = 'attention';
-          batch.error = `${error?.message || 'Could not send this job.'}${transmitting ? ' The last file may have reached the printer. Check it before reprinting; this job will not retry automatically.' : ''}`;
+          batch.error = `${error?.message || 'Could not send this job.'}${transmitting ? error?.printNotSubmitted === true
+            ? ' This file was not sent to the printer. Fix the reported problem before submitting it again; this job will not retry automatically.'
+            : ' The last file may have reached the printer. Check it before reprinting; this job will not retry automatically.' : ''}`;
         }
         this.changed();
       }
@@ -134,7 +136,18 @@ export async function printRequest(url: string, body: any) {
   try {
     const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
     const json = await response.json();
-    if (!response.ok || !json?.ok) throw new Error(json?.error || 'The print service did not confirm this request.');
+    if (!response.ok || !json?.ok) {
+      const error: Error & { printNotSubmitted?: boolean } = new Error(json?.error || 'The print service did not confirm this request.');
+      // These codes are emitted by the Mac's single-file preparation path,
+      // before lp is invoked. Network errors and unrecognised responses remain
+      // unknown outcomes and must retain the duplicate-print warning.
+      if (url === '/api/print-proxy?action=print' && json?.ok === false && [
+        'STUDENT_REQUIRED', 'EMPTY_STUDENT_NAME', 'PDF_READ_FAILED',
+        'PDF_LOAD_FAILED', 'PDF_NO_PAGES', 'FONT_EMBED_FAILED',
+        'STAMP_DRAW_FAILED', 'PDF_SAVE_FAILED', 'TEMP_WRITE_FAILED',
+      ].includes(json?.code)) error.printNotSubmitted = true;
+      throw error;
+    }
     return json;
   } finally { clearTimeout(timer); }
 }
